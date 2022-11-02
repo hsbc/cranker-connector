@@ -40,7 +40,7 @@ public class ConnectRetryTest {
     public void after() {
         if (targetServer != null) swallowException(targetServer::stop);
         if (router != null) swallowException(router::stop);
-        if (connector != null) swallowException(() -> connector.stop().get(10, TimeUnit.SECONDS));
+        if (connector != null) swallowException(() -> connector.stop(10, TimeUnit.SECONDS));
     }
 
     @Test

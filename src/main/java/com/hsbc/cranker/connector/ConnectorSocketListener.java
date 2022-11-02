@@ -8,7 +8,10 @@ interface ConnectorSocketListener {
     void onConnectionAcquired(ConnectorSocket socket);
 
     /**
-     * Called when a socket unexpectedly gets disconnected
+     * Called when the socket close
+     *
+     * @param socket
+     * @param error null if there are no error
      */
-    void onError(ConnectorSocket socket, Throwable error);
+    void onClose(ConnectorSocket socket, Throwable error);
 }

@@ -85,7 +85,7 @@ public class ManualTest {
             log.info("Shutting down....");
             executorService.shutdown();
             try {
-                connector.stop().get(10, TimeUnit.SECONDS);
+                connector.stop(10, TimeUnit.SECONDS);
             } catch (Exception e) {
                 log.info("Error stopping connector", e);
             }

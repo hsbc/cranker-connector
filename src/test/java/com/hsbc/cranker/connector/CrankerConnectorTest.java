@@ -34,7 +34,7 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
 
     private final CrankerConnector connector = CrankerConnectorBuilder.connector()
         .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
-        .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri()))
+        .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri(registrationServer.uri())))
         .withRoute("*")
         .withTarget(targetServer.uri())
         .withComponentName("cranker-connector-unit-test")
@@ -42,7 +42,7 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
 
     @AfterEach
     public void stop() throws Exception {
-        connector.stop().get(10, TimeUnit.SECONDS);
+        connector.stop(10, TimeUnit.SECONDS);
         targetServer.stop();
     }
 

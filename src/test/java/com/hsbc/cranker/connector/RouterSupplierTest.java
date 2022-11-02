@@ -138,7 +138,7 @@ public class RouterSupplierTest extends BaseEndToEndTest {
         Thread.sleep(45000);
 
         assertEventually(received::get, instanceOf(RuntimeException.class));
-        connector.stop().get(1, TimeUnit.MINUTES);
+        connector.stop(1, TimeUnit.MINUTES);
     }
 
 
@@ -162,7 +162,7 @@ public class RouterSupplierTest extends BaseEndToEndTest {
 
 
     private void assertStoppable(CrankerConnector connector) {
-        Assertions.assertDoesNotThrow(() -> connector.stop().get(30, TimeUnit.SECONDS));
+        Assertions.assertDoesNotThrow(() -> connector.stop(30, TimeUnit.SECONDS));
     }
 
     @AfterAll

@@ -30,15 +30,18 @@ public interface CrankerConnector {
      * Starts a graceful disconnection from the routers which allows for zero-downtime deployments of components
      * that have multiple instances.
      * <p>This method will send a message to each router stating its intention to shut down, and the router will
-     * stop sending new requests to this connector, and close any idle connections. When any active connections
-     * have completed, the future returned by this returns.</p>
+     * stop sending new requests to this connector, and close any idle connections. When all active connections
+     * have completed within timeout, it return true.</p>
      * <p>So, to perform a zero-downtime deployment where there are at least 2 services, perform a restart on
      * each instance sequentially. For each instance, first call this stop method, and when it completes, shut down
      * the target server. Then start a new instance before shutting down the next instance.</p>
      *
-     * @return A future that completes when no more requests are being processed
+     * @param timeout  the maximum time to wait for active requests to complete
+     * @param timeUnit the time unit of the timeout argument
+     * @return true if all the active requests completed within the timeout. If it returns <code>false</code> then
+     * requests will still be in progress (in order to stop the active requests you can simply shut down your web service).
      */
-    CompletableFuture<Void> stop();
+    boolean stop(long timeout, TimeUnit timeUnit);
 
     /**
      * @return A unique ID assigned to this connector that is provided to the router for diagnostic reasons.
@@ -46,7 +49,7 @@ public interface CrankerConnector {
     String connectorId();
 
     /**
-     * @return Meta data about the routers that this connector is connected to. Provided for diagnostic purposes.
+     * @return Metadata about the routers that this connector is connected to. Provided for diagnostic purposes.
      */
     List<RouterRegistration> routers();
 }
@@ -99,7 +102,7 @@ class CrankerConnectorImpl implements CrankerConnector {
 
             return CompletableFuture.allOf(toRemove.stream().map(RouterRegistrationImpl::stop).toArray(CompletableFuture<?>[]::new));
         }
-        return null;
+        return CompletableFuture.completedFuture(null);
     }
 
     private static boolean sameRouter(URI registrationUrl1, URI registrationUrl2) {
@@ -128,27 +131,34 @@ class CrankerConnectorImpl implements CrankerConnector {
     }
 
     @Override
-    public CompletableFuture<Void> stop() {
+    public boolean stop(long timeout, TimeUnit unit) {
         if (this.routerUpdateExecutor == null) {
             throw new IllegalStateException("Cannot call stop() when the connector is not running. Did you call stop() twice?");
         }
+        try {
 
-        routerConFactory.stop();
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        for (RouterRegistrationImpl registration : routers) {
-            futures.add(registration.stop());
+            ScheduledExecutorService exec = this.routerUpdateExecutor;
+            this.routerUpdateExecutor = null;
+            exec.shutdownNow();
+
+            List<CompletableFuture<Void>> futures = routers.stream()
+                .map(RouterRegistrationImpl::stop)
+                .collect(toList());
+
+            futures.add(CompletableFuture.runAsync(() -> {
+                try {
+                    exec.awaitTermination(Long.valueOf(timeout).intValue(), unit);
+                } catch (InterruptedException ignored) {}
+            }));
+
+            routers.clear();
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                .whenComplete((result, error) -> routerConFactory.stop())
+                .get(timeout, unit);
+            return true;
+        } catch (Throwable throwable) {
+            return false;
         }
-        ScheduledExecutorService exec = this.routerUpdateExecutor;
-        this.routerUpdateExecutor = null;
-        exec.shutdownNow();
-        futures.add(CompletableFuture.runAsync(() -> {
-            try {
-                exec.awaitTermination(1, TimeUnit.MINUTES);
-            } catch (InterruptedException ignored) {
-            }
-        }));
-        routers.clear();
-        return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
     }
 
     @Override

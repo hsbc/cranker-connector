@@ -28,8 +28,8 @@ In this scenario, you have a microservice that you want to expose on a list of e
 
 1. Add a dependency to this library. Note: this will be deployed to Nexus in the near future.
 2. In your service, start a web server using your preferred framework. This will only be accessed over
-a local connection, so the port number is not important (so port 0 is recommended), and you can bind to the
-localhost network interface which is recommended for security reasons.
+   a local connection, so the port number is not important (so port 0 is recommended), and you can bind to the
+   localhost network interface which is recommended for security reasons.
 3. Create a `CrankerConnector` object, passing it the router URLs and your service's URL.
     ````java
     URI targetServiceUri = startedWebServerUri();
@@ -45,7 +45,7 @@ Your service will now be available on the cranker router.
 
 If you have multiple routers then a single domain name can point to all instances of your router. The `withRouterLookupByDNS`
 method will result in a periodic DNS lookup to resolve the router IP addresses. Note that using this approach will use
-IP-address URLs which may affect SNI and/or hostname verification. Using fixed DNS names if that's an issue or see the SSL 
+IP-address URLs which may affect SNI and/or hostname verification. Using fixed DNS names if that's an issue or see the SSL
 section below for a workaround.
 
 Listening to events
@@ -99,7 +99,22 @@ Zero downtime deployments
 
 As long as you have at least 2 instances of your connected service, you can perform a zero downtime
 deployment by simply stopping and restarting one instance at a time. In order to ensure that any
-in-flight requests complete before your application is shutdown, call `stop()` on the connector object.
-This returns a `CompletableFuture<Void>` which only completes when all active requests have completed.
-Therefore you can simply stop the connector, wait for the `stop()` method to complete, and then shut down
-your web server.
+in-flight requests complete before your application is shutdown, call `stop(long timeout, TimeUnit timeUnit)`
+on the connector object. This will deregister connector from router and wait for the active request completed.
+
+* It will return true if all active requests have completed within timeout.
+* If it returns false on timeout, requests will still be in progress. In order to stop the active requests
+  you can simply shut down your web service.
+
+Here is an example
+```java
+Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+    if (!connector.stop(10, TimeUnit.SECONDS)) log.info("Killing active requests");
+    targetServer.stop();
+}));
+```
+
+Release Note
+------------
+
+Take a look at [here](./RELEASE.md)

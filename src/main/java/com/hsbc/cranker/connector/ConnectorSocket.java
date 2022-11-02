@@ -22,27 +22,40 @@ public interface ConnectorSocket {
         /**
          * No connection attempt has been made yet
          */
-        NOT_STARTED,
+        NOT_STARTED(false),
         /**
          * The socket is connected to the router and is ready to receive a request
          */
-        IDLE,
+        IDLE(false),
         /**
          * The socket is currently handling a request
          */
-        HANDLING_REQUEST,
+        HANDLING_REQUEST(false),
         /**
          * A request was successfully completed on this socket
          */
-        COMPLETE,
+        COMPLETE(true),
         /**
          * An error occurred on this socket
          */
-        ERROR,
+        ERROR(true),
         /**
          * The router that this was connected to was shut down
          */
-        ROUTER_CLOSED
+        ROUTER_CLOSED(true);
+
+        final private boolean isCompleted;
+
+        State(boolean isCompleted) {
+            this.isCompleted = isCompleted;
+        }
+
+        /**
+         * @return true if it's in end state
+         */
+        public boolean isCompleted() {
+            return isCompleted;
+        }
     }
 
     /**
@@ -65,6 +78,7 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
     private final ScheduledExecutorService executor;
     private ScheduledFuture<?> pingPongTask;
     private volatile State state = State.NOT_STARTED;
+    private volatile CompletableFuture<Void> complete = new CompletableFuture<>();
 
     ConnectorSocketImpl(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener, ScheduledExecutorService executor) {
         this.targetURI = targetURI;
@@ -120,14 +134,14 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
     public void onOpen(WebSocket webSocket) {
         this.webSocket = webSocket;
         onSignOfLife();
-        state = State.IDLE;
+        updateState(State.IDLE);
         webSocket.request(1);
         pingPongTask = executor.scheduleAtFixedRate(() -> {
             try {
                 ByteBuffer wrap = ByteBuffer.wrap(PING_MSG);
                 webSocket.sendPing(wrap);
             } catch (Exception e) {
-                disconnect(State.ERROR, 1011);
+                close(State.ERROR, 1011, e);
             }
         }, 5, 5, TimeUnit.SECONDS);
     }
@@ -151,7 +165,7 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             CrankerRequestParser protocolRequest = new CrankerRequestParser(data);
             listener.onConnectionAcquired(this);
             newRequestToTarget(protocolRequest, webSocket);
-            state = State.HANDLING_REQUEST;
+            updateState(State.HANDLING_REQUEST);
         } else if (CrankerRequestParser.REQUEST_BODY_ENDED_MARKER.contentEquals(data)) {
             targetBodySubscriber.onComplete();
             webSocket.request(1);
@@ -188,19 +202,17 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
     @Override
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-        disconnect(State.ROUTER_CLOSED, WebSocket.NORMAL_CLOSURE);
-        listener.onError(this, null);
+        close(State.ROUTER_CLOSED, WebSocket.NORMAL_CLOSURE, null);
         return null;
     }
 
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
-        disconnect(State.ERROR, 1011);
-        listener.onError(this, error);
+        close(State.ERROR, 1011, error);
     }
 
-    public void disconnect(State newState, int statusCode) {
-        this.state = newState;
+    public void close(State newState, int statusCode, Throwable error) {
+        updateState(newState);
         cancelTimeout();
         if (pingPongTask != null) {
             pingPongTask.cancel(false);
@@ -209,11 +221,23 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
         if (!webSocket.isOutputClosed()) {
             webSocket.sendClose(statusCode, "");
         }
+        listener.onClose(this, error);
     }
 
     @Override
     public State state() {
         return state;
+    }
+
+    protected CompletableFuture<Void> complete() {
+        return complete;
+    }
+
+    public void updateState(State state) {
+        this.state = state;
+        if (state.isCompleted()) {
+            complete.complete(null);
+        }
     }
 
     @Override
@@ -251,24 +275,38 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             CompletableFuture<WebSocket> headersSentFuture = webSocket.sendText(respHeaders, true)
                 .whenComplete((webSocket1, throwable) -> {
                     if (throwable != null) {
-                        disconnect(State.ERROR, 1011);
+                        close(State.ERROR, 1011, throwable);
                     }
                 });
 
             return HttpResponse.BodySubscribers.fromSubscriber(new Flow.Subscriber<>() {
 
                 private Flow.Subscription subscription;
+                private volatile CompletableFuture<WebSocket> bodySendingFuture;
 
                 @Override
                 public void onSubscribe(Flow.Subscription subscription) {
                     this.subscription = subscription;
-                    headersSentFuture.thenAccept(ws -> subscription.request(1));
+                    headersSentFuture.whenComplete((ws, throwable) -> {
+                        if (throwable != null) {
+                            subscription.cancel();
+                        } else {
+                            subscription.request(1);
+                        }
+                    });
                 }
 
                 @Override
                 public void onNext(List<ByteBuffer> items) {
+
                     if (items.isEmpty()) {
                         subscription.request(1);
+                        return;
+                    }
+
+                    if (webSocket.isOutputClosed() || state != State.HANDLING_REQUEST) {
+                        subscription.cancel();
+                        onError(new RuntimeException("Error sending response body, output channel is closed"));
                         return;
                     }
 
@@ -285,16 +323,28 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
                             subscription.request(1);
                         }
                     });
+
+                    bodySendingFuture = completableFuture;
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
-                    disconnect(State.ERROR, 1011);
+                    close(State.ERROR, 1011, throwable);
                 }
 
                 @Override
                 public void onComplete() {
-                    disconnect(State.COMPLETE, WebSocket.NORMAL_CLOSURE);
+                    if (bodySendingFuture != null) {
+                        bodySendingFuture.whenComplete((ws, error) -> {
+                            if (error != null) {
+                                onError(error);
+                            } else {
+                                close(State.COMPLETE, WebSocket.NORMAL_CLOSURE, null);
+                            }
+                        });
+                    } else {
+                        close(State.COMPLETE, WebSocket.NORMAL_CLOSURE, null);
+                    }
                 }
             });
         }
@@ -325,7 +375,7 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
                 @Override
                 public void cancel() {
-                    disconnect(State.ERROR, 1011);
+                    close(State.ERROR, 1011, null);
                 }
             });
         }

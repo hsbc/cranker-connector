@@ -5,10 +5,12 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
  * Information about connections to a router.
@@ -86,6 +88,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
     private final String route;
     private final int windowSize;
     private final Set<ConnectorSocket> idleSockets = ConcurrentHashMap.newKeySet();
+    private final Set<ConnectorSocket> runningSockets = ConcurrentHashMap.newKeySet();
     private final URI targetUri;
     private final ScheduledExecutorService executor;
     private final AtomicInteger connectAttempts = new AtomicInteger();
@@ -119,6 +122,13 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                 public void onOpen(WebSocket webSocket) {
                     webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "");
                 }
+            })
+            .thenCompose(webSocket -> {
+                final List<CompletableFuture<Void>> runningSockets = this.runningSockets
+                    .stream()
+                    .map(socket -> ((ConnectorSocketImpl) socket).complete())
+                    .collect(Collectors.toList());
+                return CompletableFuture.allOf(runningSockets.toArray(CompletableFuture[]::new));
             })
             .handle((webSocket, throwable) -> {
                 state = State.STOPPED;
@@ -168,15 +178,14 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
 
     @Override
     public void onConnectionAcquired(ConnectorSocket socket) {
-        remove(socket);
+        runningSockets.add(socket);
+        idleSockets.remove(socket);
+        addAnyMissing();
     }
 
     @Override
-    public void onError(ConnectorSocket socket, Throwable error) {
-        remove(socket);
-    }
-
-    private void remove(ConnectorSocket socket) {
+    public void onClose(ConnectorSocket socket, Throwable error) {
+        runningSockets.remove(socket);
         idleSockets.remove(socket);
         addAnyMissing();
     }

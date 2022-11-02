@@ -33,11 +33,11 @@ public class BaseEndToEndTest {
         return muServer().withHttpsPort(port).addHandler(crankerRouter.createRegistrationHandler()).start();
     }
 
-    protected URI registrationUri() {
-        return URI.create("ws" + registrationServer.uri().toString().substring(4));
+    protected static URI registrationUri(URI routerUri) {
+        return URI.create("ws" + routerUri.toString().substring(4));
     }
 
-    static CrankerConnector startConnectorAndWaitForRegistration(CrankerRouter crankerRouter,
+    public static CrankerConnector startConnectorAndWaitForRegistration(CrankerRouter crankerRouter,
                                                                  String targetServiceName,
                                                                  MuServer target,
                                                                  int slidingWindowSize,
@@ -68,7 +68,7 @@ public class BaseEndToEndTest {
 
     public static CrankerConnector startConnector(String targetServiceName, MuServer target, int slidingWindowSize, MuServer... registrationRouters) {
         List<URI> uris = Stream.of(registrationRouters)
-            .map(s -> URI.create("ws" + s.uri().toString().substring(4)))
+            .map(s -> registrationUri(s.uri()))
             .collect(toList());
         return CrankerConnectorBuilder.connector()
             .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())

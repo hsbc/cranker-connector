@@ -56,7 +56,7 @@ public class DualRouterTest extends BaseEndToEndTest {
 
     @Test
     public void canMakeRequestWhenOneConnectorAppIsDown() throws Exception {
-        connector1.stop().get(1, TimeUnit.MINUTES);
+        connector1.stop(1, TimeUnit.MINUTES);
         assertGetLargeHtmlWorks(routerServer1, "/a");
         assertGetLargeHtmlWorks(routerServer1, "/b");
         assertGetLargeHtmlWorks(routerServer1, "");
@@ -83,7 +83,7 @@ public class DualRouterTest extends BaseEndToEndTest {
     public static void stop() {
         CrankerConnector[] connectors = {connector1, connector2, connector3, connector4};
         for (CrankerConnector connector : connectors) {
-            swallowException(() -> connector.stop().get(30, TimeUnit.SECONDS));
+            swallowException(() -> connector.stop(30, TimeUnit.SECONDS));
         }
         swallowException(routerServer1::stop);
         swallowException(routerServer2::stop);

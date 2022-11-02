@@ -27,10 +27,10 @@ public class ServerSentEventTest extends BaseEndToEndTest {
 
     @AfterEach
     public void after() {
-        if (connector != null) swallowException(() -> connector.stop().get(10, TimeUnit.SECONDS));
-        if (router != null) swallowException(router::stop);
-        if (targetServer != null) swallowException(targetServer::stop);
         if (client != null) swallowException(client::stop);
+        if (targetServer != null) swallowException(targetServer::stop);
+        if (router != null) swallowException(router::stop);
+        if (connector != null) swallowException(() -> connector.stop(10, TimeUnit.SECONDS));
     }
 
     @Test
