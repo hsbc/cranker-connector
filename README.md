@@ -113,8 +113,3 @@ Runtime.getRuntime().addShutdownHook(new Thread(() -> {
     targetServer.stop();
 }));
 ```
-
-Release Note
-------------
-
-Take a look at [here](./RELEASE.md)
