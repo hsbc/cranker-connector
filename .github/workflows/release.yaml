@@ -32,7 +32,5 @@ jobs:
               "passphrase": "${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}",
               "configuration": {}
             }]
-      - name: Verify package
-        run: mvn --batch-mode verify
       - name: Release package
-        run: mvn -X --batch-mode -DskipTests=true releaser:release
+        run: mvn --batch-mode -DskipTests=true releaser:release
