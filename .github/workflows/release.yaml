@@ -9,7 +9,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install gpg secret key
-        run: cat <(echo -e "${{ secrets.OSSRH_GPG_SECRET_KEY }}") | gpg --batch --import
+        run: cat <(echo -e "${{ secrets.GPG_SECRET_KEY }}") | gpg --batch --import
       - name: Set up Maven Central Repository
         uses: actions/setup-java@v3
         with:
@@ -27,7 +27,7 @@ jobs:
             },
             {
               "id": "gpg.passphrase",
-              "passphrase": "${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}",
+              "passphrase": "${{ secrets.GPG_SECRET_KEY_PASSWORD }}",
               "configuration": {}
             }]
       - name: Verify package
