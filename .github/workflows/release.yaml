@@ -13,3 +13,5 @@ jobs:
         run: |
           cat <(echo -e "${{ secrets.GPG_SECRET_KEY }}") | gpg --batch --import
           gpg --list-secret-keys --keyid-format LONG
+          gpg --keyserver keyserver.ubuntu.com --send-keys B6F85AEA78326EEF71D5F23EFC62256235CBD216
+
