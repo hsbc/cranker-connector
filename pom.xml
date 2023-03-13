@@ -137,6 +137,9 @@
                 <artifactId>multi-module-maven-release-plugin</artifactId>
                 <version>3.6.4</version>
                 <configuration>
+                    <releaseGoals>
+                        <releaseGoal>verify</releaseGoal>
+                    </releaseGoals>
                     <releaseProfiles>
                         <releaseProfile>release</releaseProfile>
                     </releaseProfiles>
