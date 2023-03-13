@@ -138,7 +138,7 @@
                 <version>3.6.4</version>
                 <configuration>
                     <releaseGoals>
-                        <releaseGoal>verify</releaseGoal>
+                        <releaseGoal>install</releaseGoal>
                     </releaseGoals>
                     <releaseProfiles>
                         <releaseProfile>release</releaseProfile>
