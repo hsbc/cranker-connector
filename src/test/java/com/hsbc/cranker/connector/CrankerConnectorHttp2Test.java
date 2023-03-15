@@ -5,7 +5,7 @@ import io.muserver.Method;
 import io.muserver.MuServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import scaffolding.testrouter.CrankerRouter;
+import com.hsbc.cranker.mucranker.CrankerRouter;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -18,7 +18,7 @@ import static io.muserver.MuServerBuilder.httpsServer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static scaffolding.Action.swallowException;
-import static scaffolding.testrouter.CrankerRouterBuilder.crankerRouter;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class CrankerConnectorHttp2Test {
 
@@ -51,7 +51,7 @@ public class CrankerConnectorHttp2Test {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100)
+            .withConnectorMaxWaitInMillis(4000)
             .start();
 
         this.routerServer = httpsServer()

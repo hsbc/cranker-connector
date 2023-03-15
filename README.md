@@ -26,7 +26,14 @@ Usage
 
 In this scenario, you have a microservice that you want to expose on a list of existing cranker routers.
 
-1. Add a dependency to this library. Note: this will be deployed to Nexus in the near future.
+1. Add a dependency to this library:
+```xml
+<dependency>
+    <groupId>com.hsbc.cranker</groupId>
+    <artifactId>cranker-connector</artifactId>
+    <version>RELEASE</version>
+</dependency>
+```
 2. In your service, start a web server using your preferred framework. This will only be accessed over
    a local connection, so the port number is not important (so port 0 is recommended), and you can bind to the
    localhost network interface which is recommended for security reasons.

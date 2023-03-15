@@ -6,7 +6,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import scaffolding.testrouter.CrankerRouter;
+import com.hsbc.cranker.mucranker.CrankerRouter;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -26,7 +26,7 @@ import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static scaffolding.Action.swallowException;
 import static scaffolding.AssertUtils.assertEventually;
-import static scaffolding.testrouter.CrankerRouterBuilder.crankerRouter;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class RouterSupplierTest extends BaseEndToEndTest {
 

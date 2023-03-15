@@ -4,8 +4,8 @@ import io.muserver.MuServer;
 import org.junit.jupiter.api.AfterEach;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scaffolding.testrouter.CrankerRouter;
-import scaffolding.testrouter.CrankerRouterBuilder;
+import com.hsbc.cranker.mucranker.CrankerRouter;
+import com.hsbc.cranker.mucranker.CrankerRouterBuilder;
 
 import java.net.URI;
 import java.net.http.HttpClient;

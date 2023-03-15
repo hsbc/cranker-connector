@@ -5,7 +5,7 @@ import io.muserver.Http2ConfigBuilder;
 import io.muserver.MuServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import scaffolding.testrouter.CrankerRouter;
+import com.hsbc.cranker.mucranker.CrankerRouter;
 
 import java.io.IOException;
 import java.net.URI;
@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static scaffolding.Action.swallowException;
 import static scaffolding.AssertUtils.assertEventually;
 import static scaffolding.StringUtils.randomAsciiStringOfLength;
-import static scaffolding.testrouter.CrankerRouterBuilder.crankerRouter;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class ConnectRetryTest {
 
@@ -54,7 +54,8 @@ public class ConnectRetryTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100).start();
+            .withConnectorMaxWaitInMillis(400)
+            .start();
         this.router = httpsServer()
             .addHandler(crankerRouter.createRegistrationHandler())
             .addHandler(crankerRouter.createHttpHandler())
@@ -79,8 +80,7 @@ public class ConnectRetryTest {
 
         assertThat(connector.routers().get(0).currentUnsuccessfulConnectionAttempts(), greaterThan(0));
 
-        this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100).start();
+        this.crankerRouter = crankerRouter().withConnectorMaxWaitInMillis(4000).start();
         this.router = httpsServer()
             .withHttpsPort(originalPort)
             .addHandler(crankerRouter.createRegistrationHandler())
@@ -114,7 +114,7 @@ public class ConnectRetryTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100).start();
+            .withConnectorMaxWaitInMillis(4000).start();
 
         this.router = httpsServer()
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
@@ -152,7 +152,7 @@ public class ConnectRetryTest {
         assertEventually(exceptionCount::get, greaterThan(0));
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100)
+            .withConnectorMaxWaitInMillis(4000)
             .start();
         this.router = httpsServer()
             .withHttpsPort(originalPort)

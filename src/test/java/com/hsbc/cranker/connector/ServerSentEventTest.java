@@ -16,7 +16,7 @@ import static io.muserver.MuServerBuilder.httpsServer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static scaffolding.Action.swallowException;
-import static scaffolding.testrouter.CrankerRouterBuilder.crankerRouter;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class ServerSentEventTest extends BaseEndToEndTest {
 
@@ -47,7 +47,7 @@ public class ServerSentEventTest extends BaseEndToEndTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100).start();
+            .withConnectorMaxWaitInMillis(4000).start();
 
         this.router = httpsServer()
             .addHandler(crankerRouter.createRegistrationHandler())
@@ -108,7 +108,7 @@ public class ServerSentEventTest extends BaseEndToEndTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100).start();
+            .withConnectorMaxWaitInMillis(4000).start();
 
         this.router = httpsServer()
             .addHandler(crankerRouter.createRegistrationHandler())

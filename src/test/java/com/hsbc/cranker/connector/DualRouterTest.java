@@ -5,7 +5,7 @@ import io.muserver.MuServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import scaffolding.StringUtils;
-import scaffolding.testrouter.CrankerRouter;
+import com.hsbc.cranker.mucranker.CrankerRouter;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -17,7 +17,7 @@ import static io.muserver.MuServerBuilder.httpServer;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static scaffolding.Action.swallowException;
-import static scaffolding.testrouter.CrankerRouterBuilder.crankerRouter;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class DualRouterTest extends BaseEndToEndTest {
 

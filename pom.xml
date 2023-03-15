@@ -58,6 +58,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>com.hsbc.cranker</groupId>
+            <artifactId>mu-cranker-router</artifactId>
+            <version>1.0.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>io.muserver</groupId>
             <artifactId>mu-server</artifactId>
             <version>0.73.5</version>
