@@ -6,7 +6,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scaffolding.testrouter.CrankerRouter;
+import com.hsbc.cranker.mucranker.CrankerRouter;
 
 import java.io.PrintWriter;
 import java.net.URI;
@@ -25,7 +25,7 @@ import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static scaffolding.Action.swallowException;
 import static scaffolding.AssertUtils.assertEventually;
-import static scaffolding.testrouter.CrankerRouterBuilder.crankerRouter;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class CrankerConnectorStopTest {
 
@@ -71,7 +71,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100)
+            .withConnectorMaxWaitInMillis(4000)
             .start();
 
         this.routerServer = httpsServer()
@@ -127,7 +127,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100)
+            .withConnectorMaxWaitInMillis(4000)
             .start();
 
         this.routerServer = httpsServer()
@@ -188,7 +188,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100)
+            .withConnectorMaxWaitInMillis(4000)
             .start();
 
         this.routerServer = httpsServer()
@@ -232,7 +232,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100)
+            .withConnectorMaxWaitInMillis(4000)
             .start();
 
         this.routerServer = httpsServer()
@@ -268,7 +268,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorAcquireAttempts(4, 100)
+            .withConnectorMaxWaitInMillis(4000)
             .start();
 
         this.routerServer = httpsServer()

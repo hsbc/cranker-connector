@@ -6,6 +6,7 @@ import io.muserver.MuHandler;
 import io.muserver.MuServer;
 import io.muserver.handlers.ResourceHandlerBuilder;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import scaffolding.ByteUtils;
 
@@ -39,6 +40,11 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
         .withTarget(targetServer.uri())
         .withComponentName("cranker-connector-unit-test")
         .start();
+
+    @BeforeEach
+    public void waitForRegistration() {
+        waitForRegistration("*", 2, crankerRouter);
+    }
 
     @AfterEach
     public void stop() throws Exception {
