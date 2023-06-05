@@ -11,6 +11,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Information about connections to a router.
@@ -82,9 +83,13 @@ public interface RouterRegistration {
 
 class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistration {
 
+    private final static String CRANKER_PROTOCOL = "CrankerProtocol"; // 1.0
+
     private volatile State state = State.NOT_STARTED;
+    private final List<String> preferredProtocols;
     private final HttpClient client;
     private final URI registrationUri;
+    private final String domain;
     private final String route;
     private final int windowSize;
     private final Set<ConnectorSocket> idleSockets = ConcurrentHashMap.newKeySet();
@@ -94,16 +99,22 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
     private final AtomicInteger connectAttempts = new AtomicInteger();
     private volatile Throwable lastConnectionError;
     private final RouterEventListener routerEventListener;
+    private final ProxyEventListener proxyEventListener;
     private final AtomicBoolean isAddMissingScheduled = new AtomicBoolean(false);
 
-    RouterRegistrationImpl(HttpClient client, URI registrationUri, String route, int windowSize, URI targetUri, ScheduledExecutorService executor, RouterEventListener routerEventListener) {
+    RouterRegistrationImpl(List<String> preferredProtocols, HttpClient client, URI registrationUri, String domain, String route, int windowSize, URI targetUri,
+                           ScheduledExecutorService executor, RouterEventListener routerEventListener,
+                           ProxyEventListener proxyEventListener) {
+        this.preferredProtocols = preferredProtocols;
         this.client = client;
         this.registrationUri = registrationUri;
+        this.domain = domain;
         this.route = route;
         this.windowSize = windowSize;
         this.targetUri = targetUri;
         this.executor = executor;
         this.routerEventListener = routerEventListener;
+        this.proxyEventListener = proxyEventListener;
     }
 
     void start() {
@@ -115,8 +126,9 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         state = State.STOPPING;
         URI deregisterUri = registrationUri.resolve("/deregister/?" + registrationUri.getRawQuery());
         return client.newWebSocketBuilder()
-            .header("CrankerProtocol", "1.0")
+            .header(CRANKER_PROTOCOL, "1.0") // for backward compatibility
             .header("Route", this.route)
+            .header("Domain", this.domain)
             .buildAsync(deregisterUri, new WebSocket.Listener() {
                 @Override
                 public void onOpen(WebSocket webSocket) {
@@ -124,11 +136,19 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                 }
             })
             .thenCompose(webSocket -> {
-                final List<CompletableFuture<Void>> runningSockets = this.runningSockets
-                    .stream()
-                    .map(socket -> ((ConnectorSocketImpl) socket).complete())
-                    .collect(Collectors.toList());
-                return CompletableFuture.allOf(runningSockets.toArray(CompletableFuture[]::new));
+                final Stream<ConnectorSocket> runningSocketStream = this.runningSockets.stream();
+                final Stream<ConnectorSocket> idleSocketStream = this.idleSockets.stream().peek(socket -> {
+                    ConnectorSocketAdapter adapter = (ConnectorSocketAdapter) socket;
+                    if (!adapter.state().isCompleted()) {
+                        adapter.updateState(ConnectorSocket.State.STOPPING);
+                    }
+                });
+                return CompletableFuture.allOf(Stream
+                    .concat(runningSocketStream, idleSocketStream)
+                    .map(socket -> ((ConnectorSocketAdapter) socket).complete())
+                    .collect(Collectors.toList())
+                    .toArray(CompletableFuture[]::new)
+                );
             })
             .handle((webSocket, throwable) -> {
                 state = State.STOPPED;
@@ -136,14 +156,23 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
             });
     }
 
+    private static String[] getLessPreferredProtocol(List<String> protocols) {
+        return protocols.size() > 1 ? protocols.subList(1, protocols.size()).toArray(new String[0]) : new String[0];
+    }
+
     private void addAnyMissing() {
         while (state == State.ACTIVE && idleSockets.size() < windowSize) {
-            ConnectorSocketImpl connectorSocket = new ConnectorSocketImpl(targetUri, client, this, executor);
+
+            ConnectorSocketAdapter connectorSocket = new ConnectorSocketAdapter(
+                targetUri, client, this, proxyEventListener, executor
+            );
             idleSockets.add(connectorSocket);
 
             client.newWebSocketBuilder()
-                .header("CrankerProtocol", "1.0")
+                .header(CRANKER_PROTOCOL, "1.0") // for backward compatibility
+                .subprotocols(preferredProtocols.get(0), getLessPreferredProtocol(preferredProtocols))
                 .header("Route", route)
+                .header("Domain", domain)
                 .connectTimeout(Duration.ofMillis(5000))
                 .buildAsync(registrationUri, connectorSocket)
                 .whenComplete((webSocket, throwable) -> {
@@ -239,25 +268,31 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
             '}';
     }
 
-
     static class Factory {
+        private final List<String> preferredProtocols;
         private final HttpClient client;
+        private final String domain;
         private final String route;
         private final int windowSize;
         private final URI targetUri;
         private volatile ScheduledExecutorService executor;
         private final RouterEventListener routerEventListener;
+        private final ProxyEventListener proxyEventListener;
 
-        Factory(HttpClient client, String route, int windowSize, URI targetUri, RouterEventListener routerEventListener) {
+        Factory(List<String> preferredProtocols, HttpClient client, String domain, String route, int windowSize, URI targetUri,
+                RouterEventListener routerEventListener, ProxyEventListener proxyEventListener) {
+            this.preferredProtocols = preferredProtocols;
             this.client = client;
+            this.domain = domain;
             this.route = route;
             this.windowSize = windowSize;
             this.targetUri = targetUri;
             this.routerEventListener = routerEventListener;
+            this.proxyEventListener = proxyEventListener;
         }
 
         RouterRegistrationImpl create(URI registrationUri) {
-            return new RouterRegistrationImpl(client, registrationUri, route, windowSize, targetUri, executor, routerEventListener);
+            return new RouterRegistrationImpl(preferredProtocols, client, registrationUri, domain, route, windowSize, targetUri, executor, routerEventListener, proxyEventListener);
         }
 
         void start() {

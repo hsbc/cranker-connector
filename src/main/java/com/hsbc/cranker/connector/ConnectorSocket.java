@@ -32,6 +32,11 @@ public interface ConnectorSocket {
          */
         HANDLING_REQUEST(false),
         /**
+         * The socket is stopping, no new request comes in, pending the flying request complete.
+         * It's dedicated used by cranker v3 multiplexing protocol.
+         */
+        STOPPING(false),
+        /**
          * A request was successfully completed on this socket
          */
         COMPLETE(true),
@@ -62,6 +67,12 @@ public interface ConnectorSocket {
      * @return The current state of this connection
      */
     State state();
+
+    /**
+     * @return The connector socket's version, e.g. "cranker_3.0", "cranker_1.0"
+     */
+    String version();
+
 }
 
 class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
@@ -74,16 +85,21 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
     private final URI targetURI;
     private final HttpClient httpClient;
     private final ConnectorSocketListener listener;
+    private final ProxyEventListener proxyEventListener;
     private WebSocket webSocket;
     private final ScheduledExecutorService executor;
     private ScheduledFuture<?> pingPongTask;
     private volatile State state = State.NOT_STARTED;
-    private volatile CompletableFuture<Void> complete = new CompletableFuture<>();
+    private final CompletableFuture<Void> complete = new CompletableFuture<>();
+    private StringBuilder onTextBuffer;
 
-    ConnectorSocketImpl(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener, ScheduledExecutorService executor) {
+
+    ConnectorSocketImpl(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener,
+                        ProxyEventListener proxyEventListener, ScheduledExecutorService executor) {
         this.targetURI = targetURI;
         this.httpClient = httpClient;
         this.listener = listener;
+        this.proxyEventListener = proxyEventListener;
         this.executor = executor;
         onSignOfLife();
     }
@@ -110,10 +126,18 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             .method(protocolRequest.httpMethod, bodyPublisher);
         putHeadersTo(rb, protocolRequest);
 
-        this.requestToTarget = rb.build();
+        this.requestToTarget = proxyEventListener.beforeProxyToTarget(rb.build(), rb);
+
         HttpResponse.BodyHandler<Void> bh = new TargetResponseHandler(protocolResponse, webSocket);
 
-        httpClient.sendAsync(requestToTarget, bh);
+        final CompletableFuture<HttpResponse<Void>> requestFuture = httpClient.sendAsync(requestToTarget, bh);
+        requestFuture.whenComplete((response, throwable) -> {
+           if (throwable != null) {
+               close(State.ERROR, 1011, throwable);
+               // consume request body data on the fly, so that CLOSE frame can arrive and websocket can close gracefully
+               webSocket.request(1);
+           }
+        });
     }
 
     private void putHeadersTo(HttpRequest.Builder requestToTarget, CrankerRequestParser crankerRequestParser) {
@@ -160,9 +184,33 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
     @Override
     public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+
+        if (state.isCompleted()) {
+            // consume the data on the fly, so that CLOSE frame can arrive and websocket can close gracefully
+            webSocket.request(1);
+            return null;
+        }
+
         onSignOfLife();
-        if (requestToTarget == null) {
-            CrankerRequestParser protocolRequest = new CrankerRequestParser(data);
+
+        if (!last && onTextBuffer == null) {
+            onTextBuffer = new StringBuilder();
+        }
+
+        if (onTextBuffer != null) {
+            onTextBuffer.append(data);
+            // protect connector from OOM
+            if (onTextBuffer.length() > 64 * 1024) {
+                close(State.ERROR, 1011, new RuntimeException("request header too large"));
+                return null;
+            }
+        }
+
+        if (!last) {
+            webSocket.request(1);
+        } else if (requestToTarget == null) {
+            CharSequence dataToApply = onTextBuffer != null ? onTextBuffer.toString() : data;
+            CrankerRequestParser protocolRequest = new CrankerRequestParser(dataToApply);
             listener.onConnectionAcquired(this);
             newRequestToTarget(protocolRequest, webSocket);
             updateState(State.HANDLING_REQUEST);
@@ -175,6 +223,13 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
     @Override
     public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
+
+        if (state.isCompleted()) {
+            // consume the data on the fly, so that CLOSE frame can arrive and websocket can close gracefully
+            webSocket.request(1);
+            return null;
+        }
+
         onSignOfLife();
         // returning null from here tells java that it can reuse the data buffer right away, so need a copy
         int capacity = data.remaining();
@@ -227,6 +282,11 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
     @Override
     public State state() {
         return state;
+    }
+
+    @Override
+    public String version() {
+        return "cranker_1.0";
     }
 
     protected CompletableFuture<Void> complete() {

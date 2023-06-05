@@ -222,7 +222,7 @@ public class CrankerConnectorStopTest {
     }
 
     @Test
-    public void throwIllegalStateExceptionWhenCallingStopBeforeCallingStart() {
+    public void returnFalseWhenCallingStopBeforeCallingStart() {
 
         this.targetServer = httpsServer()
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(true))
@@ -249,16 +249,13 @@ public class CrankerConnectorStopTest {
             .withComponentName("cranker-connector-unit-test")
             .build(); // not start
 
-
         // call before start
-        Exception exception = assertThrows(IllegalStateException.class, () -> connector.stop(1, TimeUnit.SECONDS));
-
-        assertExceptionMessage(exception);
+        assertFalse(() -> connector.stop(1, TimeUnit.SECONDS));
     }
 
 
     @Test
-    public void throwIllegalStateExceptionWhenCallingStopMultipleTime() {
+    public void returnFalseWhenCallingStopMultipleTime() {
 
         this.targetServer = httpsServer()
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(true))
@@ -289,14 +286,7 @@ public class CrankerConnectorStopTest {
         connector.stop(10, TimeUnit.SECONDS);
 
         // second time will throw exception
-        Exception exception = assertThrows(IllegalStateException.class, () -> connector.stop(10, TimeUnit.SECONDS));
+        assertFalse(() -> connector.stop(1, TimeUnit.SECONDS));
 
-        assertExceptionMessage(exception);
-    }
-
-    private void assertExceptionMessage(Exception exception) {
-        String expectedMessage = "Cannot call stop() when the connector is not running. Did you call stop() twice?";
-        String actualMessage = exception.getMessage();
-        assertEquals(expectedMessage, actualMessage);
     }
 }

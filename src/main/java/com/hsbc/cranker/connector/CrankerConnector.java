@@ -36,7 +36,7 @@ public interface CrankerConnector {
      * each instance sequentially. For each instance, first call this stop method, and when it completes, shut down
      * the target server. Then start a new instance before shutting down the next instance.</p>
      *
-     * @param timeout  the maximum time to wait for active requests to complete
+     * @param timeout the maximum time to wait for active requests to complete
      * @param timeUnit the time unit of the timeout argument
      * @return true if all the active requests completed within the timeout. If it returns <code>false</code> then
      * requests will still be in progress (in order to stop the active requests you can simply shut down your web service).
@@ -49,7 +49,7 @@ public interface CrankerConnector {
     String connectorId();
 
     /**
-     * @return Metadata about the routers that this connector is connected to. Provided for diagnostic purposes.
+     * @return Meta data about the routers that this connector is connected to. Provided for diagnostic purposes.
      */
     List<RouterRegistration> routers();
 }
@@ -62,14 +62,21 @@ class CrankerConnectorImpl implements CrankerConnector {
     private final Supplier<Collection<URI>> crankerUriSupplier;
     private final RouterEventListener routerEventListener;
     private final String componentName;
+    private final int routerUpdateInterval;
+    private final TimeUnit timeUnit;
     private volatile ScheduledExecutorService routerUpdateExecutor;
 
-    CrankerConnectorImpl(String connectorId, RouterRegistrationImpl.Factory routerConFactory, Supplier<Collection<URI>> crankerUriSupplier, String componentName, RouterEventListener routerEventListener) {
+    CrankerConnectorImpl(String connectorId, RouterRegistrationImpl.Factory routerConFactory,
+                         Supplier<Collection<URI>> crankerUriSupplier, String componentName,
+                         RouterEventListener routerEventListener,
+                         int routerUpdateInterval, TimeUnit timeUnit) {
         this.componentName = componentName;
         this.connectorId = connectorId;
         this.routerConFactory = routerConFactory;
         this.crankerUriSupplier = crankerUriSupplier;
         this.routerEventListener = routerEventListener;
+        this.routerUpdateInterval = routerUpdateInterval;
+        this.timeUnit = timeUnit;
     }
 
     CompletableFuture<Void> updateRouters() {
@@ -111,7 +118,8 @@ class CrankerConnectorImpl implements CrankerConnector {
 
     @Override
     public void start() {
-        routerUpdateExecutor = Executors.newSingleThreadScheduledExecutor();
+        String threadName = "routerUpdateExecutor-" + connectorId();
+        routerUpdateExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> new Thread(runnable, threadName));
         routerConFactory.start();
         updateRouters();
         for (RouterRegistrationImpl registration : routers) {
@@ -119,7 +127,7 @@ class CrankerConnectorImpl implements CrankerConnector {
         }
         routerUpdateExecutor.scheduleWithFixedDelay(() -> {
             try {
-                updateRouters().get();
+                updateRouters().get(routerUpdateInterval, timeUnit);
             } catch (Throwable e) {
                 if (!(e instanceof InterruptedException)) {
                     if (routerEventListener != null) {
@@ -127,38 +135,40 @@ class CrankerConnectorImpl implements CrankerConnector {
                     }
                 }
             }
-        }, 1, 1, TimeUnit.MINUTES);
+        }, routerUpdateInterval, routerUpdateInterval, timeUnit);
     }
 
     @Override
     public boolean stop(long timeout, TimeUnit unit) {
-        if (this.routerUpdateExecutor == null) {
-            throw new IllegalStateException("Cannot call stop() when the connector is not running. Did you call stop() twice?");
-        }
         try {
-
-            ScheduledExecutorService exec = this.routerUpdateExecutor;
-            this.routerUpdateExecutor = null;
-            exec.shutdownNow();
-
-            List<CompletableFuture<Void>> futures = routers.stream()
-                .map(RouterRegistrationImpl::stop)
-                .collect(toList());
-
-            futures.add(CompletableFuture.runAsync(() -> {
-                try {
-                    exec.awaitTermination(Long.valueOf(timeout).intValue(), unit);
-                } catch (InterruptedException ignored) {}
-            }));
-
-            routers.clear();
-            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                .whenComplete((result, error) -> routerConFactory.stop())
-                .get(timeout, unit);
+            doStop(Long.valueOf(timeout).intValue(), unit).get(timeout, unit);
             return true;
         } catch (Throwable throwable) {
             return false;
         }
+    }
+
+    private CompletableFuture<Void> doStop(int timeout, TimeUnit timeUnit) {
+        if (this.routerUpdateExecutor == null) {
+            throw new IllegalStateException("Cannot call stop() when the connector is not running. Did you call stop() twice?");
+        }
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (RouterRegistrationImpl registration : routers) {
+            futures.add(registration.stop());
+        }
+        ScheduledExecutorService exec = this.routerUpdateExecutor;
+        this.routerUpdateExecutor = null;
+        exec.shutdownNow();
+        futures.add(CompletableFuture.runAsync(() -> {
+            try {
+                exec.awaitTermination(timeout, timeUnit);
+            } catch (InterruptedException ignored) {
+            }
+        }));
+        routers.clear();
+        return CompletableFuture
+            .allOf(futures.toArray(CompletableFuture[]::new))
+            .whenComplete((result, error) -> routerConFactory.stop());
     }
 
     @Override
