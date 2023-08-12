@@ -47,7 +47,11 @@ public interface ConnectorSocket {
         /**
          * The router that this was connected to was shut down
          */
-        ROUTER_CLOSED(true);
+        ROUTER_CLOSED(true),
+        /**
+         * Close due to connector stop
+         */
+        CONNECTOR_CLOSED(true);
 
         final private boolean isCompleted;
 
@@ -82,6 +86,8 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
     private static final byte[] PING_MSG = "ping".getBytes(StandardCharsets.UTF_8);
     private HttpRequest requestToTarget;
+    private CompletableFuture<HttpResponse<Void>> responseFuture;
+    private volatile Flow.Subscription responseBodySubscription;
     private final URI targetURI;
     private final HttpClient httpClient;
     private final ConnectorSocketListener listener;
@@ -130,13 +136,14 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
         HttpResponse.BodyHandler<Void> bh = new TargetResponseHandler(protocolResponse, webSocket);
 
-        final CompletableFuture<HttpResponse<Void>> requestFuture = httpClient.sendAsync(requestToTarget, bh);
-        requestFuture.whenComplete((response, throwable) -> {
-           if (throwable != null) {
-               close(State.ERROR, 1011, throwable);
-               // consume request body data on the fly, so that CLOSE frame can arrive and websocket can close gracefully
-               webSocket.request(1);
-           }
+        this.responseFuture = httpClient.sendAsync(requestToTarget, bh);
+        this.responseFuture.whenComplete((response, throwable) -> {
+            if (throwable != null) {
+                proxyEventListener.onProxyError(this.requestToTarget, throwable);
+                close(State.ERROR, 1011, throwable);
+                // consume request body data on the fly, so that CLOSE frame can arrive and websocket can close gracefully
+                webSocket.request(1);
+            }
         });
     }
 
@@ -201,7 +208,9 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             onTextBuffer.append(data);
             // protect connector from OOM
             if (onTextBuffer.length() > 64 * 1024) {
-                close(State.ERROR, 1011, new RuntimeException("request header too large"));
+                Exception e = new RuntimeException("request header too large");
+                this.proxyEventListener.onProxyError(this.requestToTarget, e);
+                close(State.ERROR, 1011, e);
                 return null;
             }
         }
@@ -273,8 +282,14 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             pingPongTask.cancel(false);
             pingPongTask = null;
         }
-        if (!webSocket.isOutputClosed()) {
-            webSocket.sendClose(statusCode, "");
+        if (webSocket != null && !webSocket.isOutputClosed()) {
+            webSocket.sendClose(statusCode, error != null ? error.getMessage() : "");
+        }
+        if (responseFuture != null && !responseFuture.isDone() && !responseFuture.isCancelled()) {
+            responseFuture.cancel(true);
+        }
+        if (responseBodySubscription != null) {
+            responseBodySubscription.cancel();
         }
         listener.onClose(this, error);
     }
@@ -287,6 +302,10 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
     @Override
     public String version() {
         return "cranker_1.0";
+    }
+
+    protected void close() {
+        close(State.CONNECTOR_CLOSED, 1001, null);
     }
 
     protected CompletableFuture<Void> complete() {
@@ -335,6 +354,7 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             CompletableFuture<WebSocket> headersSentFuture = webSocket.sendText(respHeaders, true)
                 .whenComplete((webSocket1, throwable) -> {
                     if (throwable != null) {
+                        proxyEventListener.onProxyError(requestToTarget, throwable);
                         close(State.ERROR, 1011, throwable);
                     }
                 });
@@ -347,6 +367,7 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
                 @Override
                 public void onSubscribe(Flow.Subscription subscription) {
                     this.subscription = subscription;
+                    responseBodySubscription = subscription;
                     headersSentFuture.whenComplete((ws, throwable) -> {
                         if (throwable != null) {
                             subscription.cancel();
@@ -389,11 +410,15 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
                 @Override
                 public void onError(Throwable throwable) {
+                    proxyEventListener.onProxyError(requestToTarget, throwable);
                     close(State.ERROR, 1011, throwable);
                 }
 
                 @Override
                 public void onComplete() {
+                    // indicate that it doesn't need to be cleaned on exception or error
+                    responseBodySubscription = null;
+
                     if (bodySendingFuture != null) {
                         bodySendingFuture.whenComplete((ws, error) -> {
                             if (error != null) {
@@ -435,7 +460,9 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
                 @Override
                 public void cancel() {
-                    close(State.ERROR, 1011, null);
+                    Exception e = new RuntimeException("target request body subscription cancelled");
+                    proxyEventListener.onProxyError(requestToTarget, e);
+                    close(State.ERROR, 1011, e);
                 }
             });
         }

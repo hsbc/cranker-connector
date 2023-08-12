@@ -5,6 +5,7 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
@@ -122,7 +123,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         addAnyMissing();
     }
 
-    CompletableFuture<Void> stop() {
+    CompletableFuture<Void> stop(int timeout, TimeUnit timeUnit) {
         state = State.STOPPING;
         URI deregisterUri = registrationUri.resolve("/deregister/?" + registrationUri.getRawQuery());
         return client.newWebSocketBuilder()
@@ -150,7 +151,16 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                     .toArray(CompletableFuture[]::new)
                 );
             })
+            .orTimeout(timeout, timeUnit)
             .handle((webSocket, throwable) -> {
+                if (throwable instanceof TimeoutException) {
+                    // when timeout happen, those inflight sockets needs to be closed to avoid open files leaking
+                    final LinkedList<ConnectorSocket> sockets = new LinkedList<>(this.runningSockets);
+                    sockets.addAll(this.idleSockets);
+                    for (ConnectorSocket socket : sockets) {
+                        ((ConnectorSocketAdapter) socket).close();
+                    }
+                }
                 state = State.STOPPED;
                 return null;
             });
@@ -179,13 +189,15 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                     if (throwable == null) {
                         connectAttempts.set(0);
                         lastConnectionError = null;
+                        if (state == State.STOPPING || state == State.STOPPED) {
+                            connectorSocket.onClose(webSocket, 1000, "connector stop");
+                        }
                     } else {
                         lastConnectionError = throwable;
                         idleSockets.remove(connectorSocket);
                         if (routerEventListener != null) {
                             routerEventListener.onSocketConnectionError(this, throwable);
                         }
-
                         if (isAddMissingScheduled.compareAndSet(false, true)) {
                             connectAttempts.incrementAndGet();
                             executor.schedule(() -> {

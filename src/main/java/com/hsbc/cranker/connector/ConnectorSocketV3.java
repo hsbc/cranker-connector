@@ -17,7 +17,7 @@ import java.util.function.Function;
 /**
  * A single connection between a connector and a router in protocol cranker_v3 implementation
  */
-class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
+public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
 
     static final byte MESSAGE_TYPE_DATA = 0;
     static final byte MESSAGE_TYPE_HEADER = 1;
@@ -81,8 +81,9 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
             CrankerResponseBuilder.newBuilder(),
             webSocket);
 
-        final CompletableFuture<HttpResponse<Void>> requestFuture = httpClient.sendAsync(requestToTarget, bh);
-        requestFuture.whenComplete((response, throwable) -> {
+        final CompletableFuture<HttpResponse<Void>> responseFuture = httpClient.sendAsync(requestToTarget, bh);
+        context.responseFuture = responseFuture;
+        responseFuture.whenComplete((response, throwable) -> {
             if (throwable != null) {
                 resetStream(context.requestId, 1011, "target request failed: " + throwable.getMessage());
             }
@@ -325,6 +326,7 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
                 final String errorMessage = getErrorMessage(completedData);
                 final RequestContext context = contextMap.remove(requestId);
                 if (context != null && context.request != null) {
+                    context.close();
                     proxyEventListener.onProxyError(context.request, new IllegalStateException(
                         String.format("Received rstMessage from cranker, client may closed request early." +
                             "errorCode=%s, errorMessage=%s", errorCode, errorMessage)));
@@ -393,21 +395,18 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
         closeWebsocket(State.ERROR, 1011, error);
     }
 
-    /**
-     * close the websocket
-     * @param newState
-     * @param statusCode
-     * @param error
-     */
-    public void closeWebsocket(State newState, int statusCode, Throwable error) {
+    void closeWebsocket(State newState, int statusCode, Throwable error) {
         updateState(newState);
         cancelTimeout();
         if (pingPongTask != null) {
             pingPongTask.cancel(false);
             pingPongTask = null;
         }
-        if (!webSocket.isOutputClosed()) {
-            webSocket.sendClose(statusCode, "");
+        if (webSocket != null && !webSocket.isOutputClosed()) {
+            webSocket.sendClose(statusCode, error != null ? error.getMessage() : "");
+        }
+        for (RequestContext context : contextMap.values()) {
+            context.close();
         }
         contextMap.clear();
         listener.onClose(this, error);
@@ -423,18 +422,22 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
         return "cranker_3.0";
     }
 
+    void close() {
+        closeWebsocket(State.CONNECTOR_CLOSED, 1001, null);
+    }
+
     /**
      * Get the underlying complete CompletableFuture. This method will not trigger socket close,
      * if you need close the socket manually, use {{@link #closeWebsocket(State, int, Throwable)}}
      * @return CompletableFuture resolved when socket closed
      */
-    protected CompletableFuture<Void> complete() {
+    CompletableFuture<Void> complete() {
         return complete;
     }
 
     /**
      * Update socket state
-     * @param state
+     * @param state new state
      */
     public void updateState(State state) {
         this.websocketState = state;
@@ -508,6 +511,7 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
                 @Override
                 public void onSubscribe(Flow.Subscription subscription) {
                     this.subscription = subscription;
+                    context.responseBodySubscription = subscription;
                     finalHeaderFuture.whenComplete((ws, throwable) -> {
                         if (throwable != null) {
                             subscription.cancel();
@@ -565,6 +569,9 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
 
                 @Override
                 public void onComplete() {
+                    // indicate that it doesn't need to be cleaned on exception or error
+                    context.responseBodySubscription = null;
+
                     sendBinary(dataMessages(context.requestId, true, null), true);
                     contextMap.remove(context.requestId);
                     // for graceful shutdown
@@ -718,6 +725,8 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
 
         // client request/response
         HttpRequest request;
+        CompletableFuture<HttpResponse<Void>> responseFuture;
+        Flow.Subscription responseBodySubscription;
         StringBuilder headerLineBuilder;
         Flow.Subscriber<? super ByteBuffer> requestBodySubscriber;
 
@@ -819,6 +828,15 @@ class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
                     isWssWriting.set(false);
                     writeItMaybe();
                 }
+            }
+        }
+
+        void close() {
+            if (responseFuture != null && !responseFuture.isDone() && !responseFuture.isCancelled()) {
+                responseFuture.cancel(true);
+            }
+            if (responseBodySubscription != null) {
+                responseBodySubscription.cancel();
             }
         }
 

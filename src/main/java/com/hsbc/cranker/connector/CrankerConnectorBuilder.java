@@ -38,7 +38,9 @@ public class CrankerConnectorBuilder {
     private RouterEventListener routerEventListener;
     private ProxyEventListener proxyEventListener;
     private int routerUpdateInterval = 1;
-    private TimeUnit timeUnit = TimeUnit.MINUTES;
+    private TimeUnit routerUpdateTimeUnit = TimeUnit.MINUTES;
+    private int routerDeregisterTimeout = 1;
+    private TimeUnit routerDeregisterTimeUnit = TimeUnit.MINUTES;
     private List<String> preferredProtocols = List.of(CRANKER_PROTOCOL_3, CRANKER_PROTOCOL_1);
 
     /**
@@ -77,7 +79,21 @@ public class CrankerConnectorBuilder {
      */
     public CrankerConnectorBuilder withRouterUpdateInterval(int interval, TimeUnit timeUnit) {
         this.routerUpdateInterval = interval;
-        this.timeUnit = timeUnit;
+        this.routerUpdateTimeUnit = timeUnit;
+        return this;
+    }
+
+    /**
+     * <p>Timeout setting for de-registering connector from router. Normally router will disconnect the websocket connections after
+     * inflight requests completed, but it's possible that it takes too long or hanging. When timeout happen, connector disconnect
+     * the websockets, which may causing inflight request broken.</p>
+     * @param timeout timeout
+     * @param timeUnit timeUnit
+     * @return This builder
+     */
+    public CrankerConnectorBuilder withRouterDeregisterTimeout(int timeout, TimeUnit timeUnit) {
+        this.routerDeregisterTimeout = timeout;
+        this.routerDeregisterTimeUnit = timeUnit;
         return this;
     }
 
@@ -244,10 +260,10 @@ public class CrankerConnectorBuilder {
         if (componentName == null) throw new IllegalStateException("A componentName must be specified");
 
         HttpClient clientToUse = client != null ? client : createHttpClient(false).build();
-        ProxyEventListener proxyEventListenerToUse = proxyEventListener != null ? proxyEventListener : new ProxyEventListener() {
-        };
+        ProxyEventListener proxyEventListenerToUse = proxyEventListener != null ? proxyEventListener : new ProxyEventListener(){};
         var factory = new RouterRegistrationImpl.Factory(preferredProtocols, clientToUse, domain, route, slidingWindowSize, target, routerEventListener, proxyEventListenerToUse);
-        return new CrankerConnectorImpl(connectorId, factory, crankerUris, componentName, routerEventListener, this.routerUpdateInterval, this.timeUnit);
+        return new CrankerConnectorImpl(connectorId, factory, crankerUris, componentName, routerEventListener,
+            this.routerUpdateInterval, this.routerUpdateTimeUnit, this.routerDeregisterTimeout, this.routerDeregisterTimeUnit);
     }
 
     /**

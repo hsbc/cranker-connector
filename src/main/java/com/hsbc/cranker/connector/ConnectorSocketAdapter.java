@@ -15,7 +15,7 @@ import static com.hsbc.cranker.connector.CrankerConnectorBuilder.CRANKER_PROTOCO
 /**
  * Adaptor for different protocol implementation for cranker v3 and v1
  */
-class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSocket {
+public class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSocket {
 
     private final URI targetURI;
     private final HttpClient httpClient;
@@ -28,15 +28,7 @@ class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSocket {
 
     private String protocol = "N/A";
 
-    /**
-     * Construct ConnectorSocketAdapter
-     * @param targetURI
-     * @param httpClient
-     * @param listener
-     * @param proxyEventListener
-     * @param executor
-     */
-    public ConnectorSocketAdapter(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener,
+    ConnectorSocketAdapter(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener,
                                   ProxyEventListener proxyEventListener, ScheduledExecutorService executor) {
         this.targetURI = targetURI;
         this.httpClient = httpClient;
@@ -61,7 +53,7 @@ class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSocket {
 
     @Override
     public State state() {
-        return underlying2.state();
+        return underlying2 != null ? underlying2.state() : State.NOT_STARTED;
     }
 
     @Override
@@ -71,17 +63,19 @@ class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSocket {
             : "";
     }
 
-    /**
-     * Adapt the updateState action to underlying cranker v1/v3 implementation.
-     * @param state ConnectionSocket state
-     */
-    public void updateState(State state) {
+    void close() {
+        if (CRANKER_PROTOCOL_3.equals(protocol) && underlying2 != null) {
+            ((ConnectorSocketV3) underlying2).close();
+        } else if (CRANKER_PROTOCOL_1.equals(protocol) && underlying2 != null) {
+            ((ConnectorSocketImpl) underlying2).close();
+        }
+    }
+
+    void updateState(State state) {
         if (CRANKER_PROTOCOL_3.equals(protocol) && underlying2 != null) {
             ((ConnectorSocketV3) underlying2).updateState(state);
         } else if (CRANKER_PROTOCOL_1.equals(protocol) && underlying2 != null) {
             ((ConnectorSocketImpl) underlying2).updateState(state);
-        } else {
-            // can do nothing...
         }
     }
 

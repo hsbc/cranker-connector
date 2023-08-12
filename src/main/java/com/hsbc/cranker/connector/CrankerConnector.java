@@ -62,21 +62,26 @@ class CrankerConnectorImpl implements CrankerConnector {
     private final Supplier<Collection<URI>> crankerUriSupplier;
     private final RouterEventListener routerEventListener;
     private final String componentName;
-    private final int routerUpdateInterval;
-    private final TimeUnit timeUnit;
     private volatile ScheduledExecutorService routerUpdateExecutor;
+    private final int routerUpdateInterval;
+    private final TimeUnit routerUpdateTimeUnit;
+    private final int routerDeregisterTimeout;
+    private final TimeUnit routerDeregisterTimeUnit;
 
     CrankerConnectorImpl(String connectorId, RouterRegistrationImpl.Factory routerConFactory,
                          Supplier<Collection<URI>> crankerUriSupplier, String componentName,
                          RouterEventListener routerEventListener,
-                         int routerUpdateInterval, TimeUnit timeUnit) {
+                         int routerUpdateInterval, TimeUnit routerUpdateTimeUnit,
+                         int routerDeregisterTimeout, TimeUnit routerDeregisterTimeUnit) {
         this.componentName = componentName;
         this.connectorId = connectorId;
         this.routerConFactory = routerConFactory;
         this.crankerUriSupplier = crankerUriSupplier;
         this.routerEventListener = routerEventListener;
         this.routerUpdateInterval = routerUpdateInterval;
-        this.timeUnit = timeUnit;
+        this.routerUpdateTimeUnit = routerUpdateTimeUnit;
+        this.routerDeregisterTimeout = routerDeregisterTimeout;
+        this.routerDeregisterTimeUnit = routerDeregisterTimeUnit;
     }
 
     CompletableFuture<Void> updateRouters() {
@@ -107,7 +112,11 @@ class CrankerConnectorImpl implements CrankerConnector {
                 );
             }
 
-            return CompletableFuture.allOf(toRemove.stream().map(RouterRegistrationImpl::stop).toArray(CompletableFuture<?>[]::new));
+            return CompletableFuture.allOf(
+                toRemove.stream()
+                    .map(item -> item.stop(routerDeregisterTimeout, routerDeregisterTimeUnit))
+                    .toArray(CompletableFuture<?>[]::new)
+            );
         }
         return CompletableFuture.completedFuture(null);
     }
@@ -127,7 +136,7 @@ class CrankerConnectorImpl implements CrankerConnector {
         }
         routerUpdateExecutor.scheduleWithFixedDelay(() -> {
             try {
-                updateRouters().get(routerUpdateInterval, timeUnit);
+                updateRouters().get(routerUpdateInterval, routerUpdateTimeUnit);
             } catch (Throwable e) {
                 if (!(e instanceof InterruptedException)) {
                     if (routerEventListener != null) {
@@ -135,7 +144,7 @@ class CrankerConnectorImpl implements CrankerConnector {
                     }
                 }
             }
-        }, routerUpdateInterval, routerUpdateInterval, timeUnit);
+        }, routerUpdateInterval, routerUpdateInterval, routerUpdateTimeUnit);
     }
 
     @Override
@@ -154,7 +163,7 @@ class CrankerConnectorImpl implements CrankerConnector {
         }
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (RouterRegistrationImpl registration : routers) {
-            futures.add(registration.stop());
+            futures.add(registration.stop(timeout, timeUnit));
         }
         ScheduledExecutorService exec = this.routerUpdateExecutor;
         this.routerUpdateExecutor = null;
