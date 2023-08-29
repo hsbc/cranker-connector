@@ -82,7 +82,7 @@ public class RouterSupplierTest extends BaseEndToEndTest {
         assertThat(changeData.unchanged(), hasSize(0));
 
         routerUris.remove(reg2);
-        connector.updateRouters().get();
+        connector.updateRoutersAsync().get();
 
         assertThat(changeData.added(), hasSize(0));
         assertThat(changeData.removed(), hasSize(1));
@@ -95,7 +95,7 @@ public class RouterSupplierTest extends BaseEndToEndTest {
 
         routerUris.remove(reg1);
         routerUris.add(reg2);
-        connector.updateRouters().get();
+        connector.updateRoutersAsync().get();
 
         assertThat(changeData.added(), hasSize(1));
         assertThat(changeData.added().get(0).registrationUri().resolve("/"), equalTo(reg2.resolve("/")));
