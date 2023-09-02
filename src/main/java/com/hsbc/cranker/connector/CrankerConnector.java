@@ -5,10 +5,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -84,7 +81,7 @@ class CrankerConnectorImpl implements CrankerConnector {
         this.routerDeregisterTimeUnit = routerDeregisterTimeUnit;
     }
 
-    CompletableFuture<Void> updateRouters() {
+    CompletableFuture<Void> updateRoutersAsync() {
         var before = this.routers;
         Collection<URI> newUris = crankerUriSupplier.get();
         var toAdd = newUris.stream()
@@ -134,23 +131,25 @@ class CrankerConnectorImpl implements CrankerConnector {
         for (RouterRegistrationImpl registration : routers) {
             registration.start();
         }
-        routerUpdateExecutor.scheduleWithFixedDelay(() -> {
-            try {
-                updateRouters().get(routerUpdateInterval, routerUpdateTimeUnit);
-            } catch (Throwable e) {
-                if (!(e instanceof InterruptedException)) {
-                    if (routerEventListener != null) {
-                        routerEventListener.onRouterDnsLookupError(e);
-                    }
+        routerUpdateExecutor.scheduleWithFixedDelay(this::updateRouters, routerUpdateInterval, routerUpdateInterval, routerUpdateTimeUnit);
+    }
+
+    void updateRouters() {
+        try {
+            updateRoutersAsync().get(routerUpdateInterval, routerUpdateTimeUnit);
+        } catch (Throwable e) {
+            if (!(e instanceof InterruptedException)) {
+                if (routerEventListener != null) {
+                    routerEventListener.onRouterDnsLookupError(e);
                 }
             }
-        }, routerUpdateInterval, routerUpdateInterval, routerUpdateTimeUnit);
+        }
     }
 
     @Override
     public boolean stop(long timeout, TimeUnit unit) {
         try {
-            doStop(Long.valueOf(timeout).intValue(), unit).get(timeout, unit);
+            doStop(Long.valueOf(timeout).intValue(), unit).get();
             return true;
         } catch (Throwable throwable) {
             return false;
@@ -161,23 +160,38 @@ class CrankerConnectorImpl implements CrankerConnector {
         if (this.routerUpdateExecutor == null) {
             throw new IllegalStateException("Cannot call stop() when the connector is not running. Did you call stop() twice?");
         }
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        for (RouterRegistrationImpl registration : routers) {
-            futures.add(registration.stop(timeout, timeUnit));
-        }
+
         ScheduledExecutorService exec = this.routerUpdateExecutor;
         this.routerUpdateExecutor = null;
-        exec.shutdownNow();
-        futures.add(CompletableFuture.runAsync(() -> {
-            try {
-                exec.awaitTermination(timeout, timeUnit);
-            } catch (InterruptedException ignored) {
-            }
-        }));
-        routers.clear();
+        try {
+            shutdown(exec, timeout, timeUnit).get();
+        } catch (Throwable ignore) {
+        }
+
+        List<RouterRegistrationImpl> routers = new ArrayList<>(this.routers);
+        this.routers.clear();
+
         return CompletableFuture
-            .allOf(futures.toArray(CompletableFuture[]::new))
+            .allOf(routers.stream().map(item -> item.stop(timeout, timeUnit)).toArray(CompletableFuture[]::new))
             .whenComplete((result, error) -> routerConFactory.stop());
+    }
+
+    static CompletableFuture<Void> shutdown(ExecutorService executorService, int timeout, TimeUnit timeUnit) {
+        executorService.shutdown();
+        return CompletableFuture.runAsync(() -> {
+            try {
+                if (!executorService.awaitTermination(timeout, timeUnit)) {
+                    executorService.shutdownNow();
+                    // await the final termination and throw an exception if unsuccessful
+                    if (!executorService.awaitTermination(timeout, timeUnit)) {
+                        throw new RuntimeException("Executor did not terminate");
+                    }
+                }
+            } catch (InterruptedException ignored) {
+                // if the first executorService.awaitTermination() interrupted
+                executorService.shutdownNow();
+            }
+        });
     }
 
     @Override

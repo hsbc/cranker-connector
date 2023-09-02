@@ -575,7 +575,7 @@ public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
                     sendBinary(dataMessages(context.requestId, true, null), true);
                     contextMap.remove(context.requestId);
                     // for graceful shutdown
-                    if (State.STOPPING.equals(state()) && contextMap.size() == 0) {
+                    if (State.STOPPING.equals(state()) && contextMap.isEmpty()) {
                         closeWebsocket(State.COMPLETE, WebSocket.NORMAL_CLOSURE, null);
                     }
                 }

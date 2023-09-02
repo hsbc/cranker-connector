@@ -58,9 +58,7 @@ public class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSock
 
     @Override
     public String version() {
-        return underlying2 != null
-            ? underlying2.version()
-            : "";
+        return underlying2 != null ? underlying2.version() : "";
     }
 
     void close() {
