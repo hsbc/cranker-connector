@@ -146,24 +146,26 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                 });
                 return CompletableFuture.allOf(Stream
                     .concat(runningSocketStream, idleSocketStream)
-                    .map(socket -> ((ConnectorSocketAdapter) socket).complete())
-                    .collect(Collectors.toList())
+                    .map(socket -> ((ConnectorSocketAdapter) socket)
+                        .complete()
+                        .orTimeout(timeout, timeUnit)
+                        .whenComplete((unused, throwable) -> {
+                            if (throwable instanceof TimeoutException) {
+                                // when timeout happen, those inflight sockets needs to be closed to avoid open files leaking
+                                try {
+                                    final ConnectorSocketAdapter adapter = (ConnectorSocketAdapter) socket;
+                                    if (!adapter.state().isCompleted()) {
+                                        adapter.close();
+                                    }
+                                } catch (Throwable ignore) {
+                                }
+                            }
+                        })
+                    )
                     .toArray(CompletableFuture[]::new)
                 );
             })
-            .orTimeout(timeout, timeUnit)
-            .handle((webSocket, throwable) -> {
-                if (throwable instanceof TimeoutException) {
-                    // when timeout happen, those inflight sockets needs to be closed to avoid open files leaking
-                    final LinkedList<ConnectorSocket> sockets = new LinkedList<>(this.runningSockets);
-                    sockets.addAll(this.idleSockets);
-                    for (ConnectorSocket socket : sockets) {
-                        ((ConnectorSocketAdapter) socket).close();
-                    }
-                }
-                state = State.STOPPED;
-                return null;
-            });
+            .whenComplete((webSocket, throwable) -> state = State.STOPPED);
     }
 
     private static String[] getLessPreferredProtocol(List<String> protocols) {
