@@ -221,8 +221,8 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             CharSequence dataToApply = onTextBuffer != null ? onTextBuffer.toString() : data;
             CrankerRequestParser protocolRequest = new CrankerRequestParser(dataToApply);
             listener.onConnectionAcquired(this);
-            newRequestToTarget(protocolRequest, webSocket);
             updateState(State.HANDLING_REQUEST);
+            newRequestToTarget(protocolRequest, webSocket);
         } else if (CrankerRequestParser.REQUEST_BODY_ENDED_MARKER.contentEquals(data)) {
             targetBodySubscriber.onComplete();
             webSocket.request(1);
