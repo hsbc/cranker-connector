@@ -1,9 +1,11 @@
 package manual;
 
-import com.hsbc.cranker.connector.HttpUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -11,6 +13,9 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
@@ -25,8 +30,42 @@ public class ManualSlowClientTest {
 
     private static final Logger log = LoggerFactory.getLogger(ManualSlowClientTest.class);
 
+    public static HttpClient.Builder createHttpClientBuilder(boolean trustAll) {
+
+        HttpClient.Builder builder = HttpClient.newBuilder();
+        if (trustAll) {
+            trustAll(builder);
+        }
+        return builder;
+    }
+
+    private static void trustAll(HttpClient.Builder builder) {
+        try {
+            final TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                    }
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                    }
+                    @Override
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[0];
+                    }
+                }
+            };
+            SSLContext sslContext = SSLContext.getInstance("SSL");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+            builder.sslContext(sslContext);
+
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static void main(String[] args) throws InterruptedException {
-        final HttpClient client = HttpUtils.createHttpClientBuilder(true).build();
+        final HttpClient client = createHttpClientBuilder(true).build();
 
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create("https://localhost:12345/big.log"))

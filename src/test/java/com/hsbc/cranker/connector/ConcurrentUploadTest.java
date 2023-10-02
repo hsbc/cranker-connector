@@ -20,7 +20,8 @@ import static io.muserver.MuServerBuilder.httpServer;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class ConcurrentUploadTest extends BaseEndToEndTest {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ConcurrentUploadTest.class);
+
+    private static final Logger log = LoggerFactory.getLogger(ConcurrentUploadTest.class);
 
     private volatile MuHandler handler = (request, response) -> false;
 
@@ -38,6 +39,12 @@ public class ConcurrentUploadTest extends BaseEndToEndTest {
             .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri(registrationServer.uri())))
             .withRoute("*")
             .withTarget(targetServer.uri())
+            .withProxyEventListener(new ProxyEventListener() {
+                @Override
+                public void onProxyError(HttpRequest request, Throwable error) {
+                    log.warn("onProxyError, request=" + request, error);
+                }
+            })
             .withComponentName("cranker-connector-unit-test")
             .start();
 
@@ -46,34 +53,35 @@ public class ConcurrentUploadTest extends BaseEndToEndTest {
 
     @AfterEach
     public void stop() throws Exception {
-        connector.stop(10, TimeUnit.SECONDS);
-        targetServer.stop();
+        if (connector != null) assertTrue(connector.stop(10, TimeUnit.SECONDS));
+        if (targetServer != null) targetServer.stop();
     }
 
     @RepeatedTest(3)
     public void postLargeBody() throws InterruptedException {
-        final String body = "c".repeat(10 * 1000);
+
         handler = (request, response) -> {
             response.status(200);
-            String text = request.readBodyAsString();
-            response.write(text);
+            response.write(request.readBodyAsString());
             return true;
         };
 
         Queue<HttpResponse<String>> responses = new ConcurrentLinkedQueue<>();
         CountDownLatch countDownLatch = new CountDownLatch(10);
 
+        final String body = "c".repeat(10 * 1000);
         for(int i = 0; i < 10; i++) {
+            final int finalI = i;
             new Thread(() -> {
                 try {
                     HttpResponse<String> resp = testClient.send(HttpRequest.newBuilder()
                         .method("POST", HttpRequest.BodyPublishers.ofString(body))
-                        .uri(crankerServer.uri())
+                        .uri(crankerServer.uri().resolve("/?task=" + finalI))
                         .build(), HttpResponse.BodyHandlers.ofString());
                     responses.add(resp);
                     countDownLatch.countDown();
                 } catch (Exception e) {
-                    LOGGER.error("Concurrent request error", e);
+                    log.error("Concurrent request error", e);
                     responses.add(null);
                 }
             }).start();
