@@ -1,27 +1,36 @@
 package com.hsbc.cranker.connector;
 
-import io.muserver.MuServer;
-import org.junit.jupiter.api.AfterEach;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.hsbc.cranker.mucranker.CrankerRouter;
 import com.hsbc.cranker.mucranker.CrankerRouterBuilder;
+import io.muserver.MuServer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.RepetitionInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import scaffolding.AssertUtils;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
+import static com.hsbc.cranker.connector.CrankerConnectorBuilder.CRANKER_PROTOCOL_1;
+import static com.hsbc.cranker.connector.CrankerConnectorBuilder.CRANKER_PROTOCOL_3;
 import static io.muserver.MuServerBuilder.muServer;
 import static java.util.stream.Collectors.toList;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static scaffolding.AssertUtils.assertEventually;
 
 public class BaseEndToEndTest {
 
-    private static final Logger log = LoggerFactory.getLogger(BaseEndToEndTest.class);
-
     protected final HttpClient testClient = HttpUtils.createHttpClientBuilder(true).build();
 
-    protected CrankerRouter crankerRouter = CrankerRouterBuilder.crankerRouter().start();
+    protected CrankerRouter crankerRouter = CrankerRouterBuilder
+        .crankerRouter()
+        .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+        .start();
     protected MuServer registrationServer = startRegistrationServer(0);
     protected MuServer crankerServer = startCrankerServer(0);
 
@@ -38,45 +47,64 @@ public class BaseEndToEndTest {
     }
 
     public static CrankerConnector startConnectorAndWaitForRegistration(CrankerRouter crankerRouter,
-                                                                 String targetServiceName,
-                                                                 MuServer target,
-                                                                 int slidingWindowSize,
-                                                                 MuServer... registrationRouters) {
-        CrankerConnector connector = startConnector(targetServiceName, target, slidingWindowSize, registrationRouters);
-        waitForRegistration(targetServiceName, 2, crankerRouter);
-        return connector;
+                                                                        String targetServiceName,
+                                                                        MuServer target,
+                                                                        int slidingWindowSize,
+                                                                        MuServer... registrationRouters) {
+        return startConnectorAndWaitForRegistration(crankerRouter, targetServiceName, target, List.of(CRANKER_PROTOCOL_1), slidingWindowSize, registrationRouters);
     }
 
-    public static void waitForRegistration(String targetServiceName, int slidingWindow, CrankerRouter... crankerRouters) {
-        int attempts = 0;
-        final String serviceKey = targetServiceName.isEmpty() ? "*" : targetServiceName;
-        for (CrankerRouter crankerRouter : crankerRouters) {
-            while (crankerRouter.collectInfo().services()
-                    .stream()
-                    .noneMatch(service -> service.route().equals(serviceKey)
-                        && service.connectors().size() > 0
-                        && service.connectors().get(0).connections().size() >= slidingWindow)) {
-                try {
-                    Thread.sleep(20);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-                if (attempts++ == 100) throw new RuntimeException("Failed to register " + targetServiceName);
-            }
-        }
-    }
-
-    public static CrankerConnector startConnector(String targetServiceName, MuServer target, int slidingWindowSize, MuServer... registrationRouters) {
-        List<URI> uris = Stream.of(registrationRouters)
-            .map(s -> registrationUri(s.uri()))
-            .collect(toList());
-        return CrankerConnectorBuilder.connector()
+    public static CrankerConnector startConnectorAndWaitForRegistration(CrankerRouter crankerRouter,
+                                                                        String targetServiceName,
+                                                                        MuServer target,
+                                                                        List<String> preferredProtocols,
+                                                                        int slidingWindowSize,
+                                                                        MuServer... registrationRouters) {
+        CrankerConnector connector = CrankerConnectorBuilder.connector()
+            .withPreferredProtocols(preferredProtocols)
             .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
             .withTarget(target.uri())
             .withRoute(targetServiceName)
-            .withRouterUris(RegistrationUriSuppliers.fixedUris(uris))
+            .withRouterUris(RegistrationUriSuppliers.fixedUris(Stream.of(registrationRouters)
+                .map(s -> registrationUri(s.uri()))
+                .collect(toList())))
             .withSlidingWindowSize(slidingWindowSize)
             .start();
+
+        waitForRegistration(targetServiceName, connector.connectorId(), 2, crankerRouter);
+
+        assertEventually(
+            () -> new ArrayList<>(connector.routers().get(0).idleSockets()).get(0).version(),
+            equalTo(preferredProtocols.get(0)));
+
+        return connector;
+    }
+
+    public static void waitForRegistration(String targetServiceName, String connectorInstanceId, int slidingWindow, CrankerRouter... crankerRouters) {
+        final String serviceKey = targetServiceName.isEmpty() ? "*" : targetServiceName;
+        for (CrankerRouter crankerRouter : crankerRouters) {
+            AssertUtils.assertEventually(() -> crankerRouter.collectInfo().services()
+                .stream()
+                .anyMatch(service -> service.route().equals(serviceKey)
+                    && !service.connectors().isEmpty()
+                    && service.connectors()
+                    .stream()
+                    .anyMatch(connector -> connector.connectorInstanceID().equals(connectorInstanceId)
+                        && connector.connections().size() >= slidingWindow)
+                ), is(true));
+        }
+    }
+
+    public static List<String> preferredProtocols(RepetitionInfo repetitionInfo) {
+        final int currentRepetition = repetitionInfo.getCurrentRepetition();
+        switch (currentRepetition) {
+            case 1:
+                return List.of(CRANKER_PROTOCOL_1);
+            case 2:
+                return List.of(CRANKER_PROTOCOL_3);
+            default:
+                return List.of(CRANKER_PROTOCOL_3, CRANKER_PROTOCOL_1);
+        }
     }
 
     @AfterEach

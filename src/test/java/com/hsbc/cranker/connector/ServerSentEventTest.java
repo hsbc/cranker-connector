@@ -5,18 +5,21 @@ import io.muserver.Method;
 import io.muserver.MuServer;
 import io.muserver.SsePublisher;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.RepetitionInfo;
 import org.junit.jupiter.api.Test;
 import scaffolding.SseTestClient;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 import static io.muserver.MuServerBuilder.httpServer;
 import static io.muserver.MuServerBuilder.httpsServer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static scaffolding.Action.swallowException;
-import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class ServerSentEventTest extends BaseEndToEndTest {
 
@@ -33,8 +36,8 @@ public class ServerSentEventTest extends BaseEndToEndTest {
         if (connector != null) swallowException(() -> connector.stop(10, TimeUnit.SECONDS));
     }
 
-    @Test
-    public void MuServer_NormalSseTest() throws Exception {
+   @RepeatedTest(3)
+    public void MuServer_NormalSseTest(RepetitionInfo repetitionInfo) throws Exception {
 
         this.targetServer = httpServer()
             .addHandler(Method.GET, "/sse/counter", (request, response, pathParams) -> {
@@ -47,7 +50,8 @@ public class ServerSentEventTest extends BaseEndToEndTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000).start();
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
 
         this.router = httpsServer()
             .addHandler(crankerRouter.createRegistrationHandler())
@@ -55,7 +59,8 @@ public class ServerSentEventTest extends BaseEndToEndTest {
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
             .start();
 
-        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer, 2, router);
+       this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer,
+           preferredProtocols(repetitionInfo),2, router);
 
         this.client = SseTestClient.startSse(router.uri().resolve("/sse/counter"));
         this.client.waitUntilClose(5, TimeUnit.SECONDS);
@@ -69,7 +74,7 @@ public class ServerSentEventTest extends BaseEndToEndTest {
         )));
     }
 
-    @Test
+   @Test
     public void MuServer_TargetServerDownInMiddleTest_ClientTalkToTargetServer() throws Exception {
 
         this.targetServer = httpServer()
@@ -94,8 +99,8 @@ public class ServerSentEventTest extends BaseEndToEndTest {
         )));
     }
 
-    @Test
-    public void MuServer_TargetServerDownInMiddleTest_ClientTalkToRouter() throws Exception {
+   @RepeatedTest(3)
+    public void MuServer_TargetServerDownInMiddleTest_ClientTalkToRouter(RepetitionInfo repetitionInfo) throws Exception {
 
         this.targetServer = httpServer()
             .addHandler(Method.GET, "/sse/counter", (request, response, pathParams) -> {
@@ -108,7 +113,8 @@ public class ServerSentEventTest extends BaseEndToEndTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000).start();
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
 
         this.router = httpsServer()
             .addHandler(crankerRouter.createRegistrationHandler())
@@ -116,7 +122,8 @@ public class ServerSentEventTest extends BaseEndToEndTest {
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
             .start();
 
-        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer, 2, router);
+        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer,
+            preferredProtocols(repetitionInfo), 2, router);
 
         this.client = SseTestClient.startSse(router.uri().resolve("/sse/counter"));
         this.client.waitUntilError(100, TimeUnit.SECONDS);

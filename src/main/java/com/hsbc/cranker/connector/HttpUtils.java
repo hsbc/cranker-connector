@@ -15,7 +15,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-class HttpUtils {
+public class HttpUtils {
 
     static final List<String> DISALLOWED_REQUEST_HEADERS;
     static {
@@ -44,7 +44,7 @@ class HttpUtils {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    static HttpClient.Builder createHttpClientBuilder(boolean trustAll) {
+    public static HttpClient.Builder createHttpClientBuilder(boolean trustAll) {
 
         HttpClient.Builder builder = HttpClient.newBuilder();
         if (trustAll) {

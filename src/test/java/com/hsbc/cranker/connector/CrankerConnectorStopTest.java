@@ -1,31 +1,37 @@
 package com.hsbc.cranker.connector;
 
 
+import com.hsbc.cranker.mucranker.CrankerRouter;
 import io.muserver.*;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.RepetitionInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.hsbc.cranker.mucranker.CrankerRouter;
+import scaffolding.AssertUtils;
 
-import java.io.PrintWriter;
+import java.io.*;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static com.hsbc.cranker.connector.BaseEndToEndTest.registrationUri;
-import static com.hsbc.cranker.connector.BaseEndToEndTest.startConnectorAndWaitForRegistration;
+import static com.hsbc.cranker.connector.BaseEndToEndTest.*;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
+import static io.muserver.MuServerBuilder.httpServer;
 import static io.muserver.MuServerBuilder.httpsServer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static scaffolding.Action.swallowException;
 import static scaffolding.AssertUtils.assertEventually;
-import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class CrankerConnectorStopTest {
 
@@ -39,8 +45,8 @@ public class CrankerConnectorStopTest {
     private MuServer routerServer;
     private CrankerConnector connector;
 
-    private AtomicInteger counter = new AtomicInteger(0);
-    private ScheduledExecutorService executorService = Executors.newScheduledThreadPool(10, r -> new Thread(r, "test-pool" + counter.incrementAndGet()));
+    private final AtomicInteger counter = new AtomicInteger(0);
+    private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(10, r -> new Thread(r, "test-pool" + counter.incrementAndGet()));
 
     @AfterEach
     public void after() {
@@ -48,11 +54,11 @@ public class CrankerConnectorStopTest {
         if (targetServer != null) swallowException(targetServer::stop);
         if (routerServer != null) swallowException(routerServer::stop);
         if (crankerRouter != null) swallowException(crankerRouter::stop);
-        if (executorService != null) swallowException(executorService::shutdownNow);
+        swallowException(executorService::shutdownNow);
     }
 
-    @Test
-    void requestOnTheFlyShouldCompleteSuccessfullyWithinTimeout() throws ExecutionException, InterruptedException, TimeoutException {
+    @RepeatedTest(3)
+    void requestOnTheFlyShouldCompleteSuccessfullyWithinTimeout(RepetitionInfo repetitionInfo) {
 
         AtomicInteger serverCounter = new AtomicInteger(0);
         AtomicInteger clientCounter = new AtomicInteger(0);
@@ -71,7 +77,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000)
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
             .start();
 
         this.routerServer = httpsServer()
@@ -80,7 +86,8 @@ public class CrankerConnectorStopTest {
             .addHandler(crankerRouter.createHttpHandler())
             .start();
 
-        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer, 2, this.routerServer);
+        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer,
+            preferredProtocols(repetitionInfo),2, this.routerServer);
 
         int requestCount = 3;
         for (int i = 0; i < requestCount; i++) {
@@ -105,8 +112,8 @@ public class CrankerConnectorStopTest {
         assertEventually(clientCounter::get, equalTo(requestCount));
     }
 
-    @Test
-    void requestOnTheFlyShouldCompleteSuccessfullyWithinTimeout_LongQuery() throws ExecutionException, InterruptedException, TimeoutException {
+    @RepeatedTest(3)
+    void requestOnTheFlyShouldCompleteSuccessfullyWithinTimeout_LongQuery(RepetitionInfo repetitionInfo) {
 
         AtomicInteger serverCounter = new AtomicInteger(0);
         AtomicInteger clientCounter = new AtomicInteger(0);
@@ -120,14 +127,14 @@ public class CrankerConnectorStopTest {
                     for (int i = 0; i < 12; i++) {
                         writer.print(i + ",");
                         writer.flush();
-                        Thread.sleep(1000L);
+                        Thread.sleep(100L);
                     }
                 }
             })
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000)
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
             .start();
 
         this.routerServer = httpsServer()
@@ -136,8 +143,8 @@ public class CrankerConnectorStopTest {
             .addHandler(crankerRouter.createHttpHandler())
             .start();
 
-        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer, 2, this.routerServer);
-
+        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer,
+            preferredProtocols(repetitionInfo),2, this.routerServer);
 
         executorService.submit(() -> {
             try {
@@ -162,8 +169,8 @@ public class CrankerConnectorStopTest {
     }
 
 
-    @Test
-    void getTimeoutExceptionIfExceedTimeout() throws ExecutionException, InterruptedException, TimeoutException {
+    @RepeatedTest(3)
+    void getTimeoutExceptionIfExceedTimeout(RepetitionInfo repetitionInfo) {
 
         AtomicInteger serverCounter = new AtomicInteger(0);
         AtomicInteger serverExceptionCounter = new AtomicInteger(0);
@@ -180,7 +187,6 @@ public class CrankerConnectorStopTest {
                         asyncHandle.write(ByteBuffer.wrap("hello world".getBytes()));
                         asyncHandle.complete();
                     } catch (Throwable throwable) {
-                        System.out.println(throwable);
                         serverExceptionCounter.incrementAndGet();
                     }
                 }, 3, TimeUnit.SECONDS);
@@ -188,7 +194,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000)
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
             .start();
 
         this.routerServer = httpsServer()
@@ -197,7 +203,8 @@ public class CrankerConnectorStopTest {
             .addHandler(crankerRouter.createHttpHandler())
             .start();
 
-        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer, 2, this.routerServer);
+        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer,
+            preferredProtocols(repetitionInfo),2, this.routerServer);
 
         int requestCount = 3;
         for (int i = 0; i < requestCount; i++) {
@@ -221,18 +228,16 @@ public class CrankerConnectorStopTest {
         this.targetServer.stop();
     }
 
-    @Test
-    public void returnFalseWhenCallingStopBeforeCallingStart() {
+    @RepeatedTest(3)
+    public void throwIllegalStateExceptionWhenCallingStopBeforeCallingStart(RepetitionInfo repetitionInfo) {
 
         this.targetServer = httpsServer()
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(true))
-            .addHandler(Method.GET, "/test", (request, response, pathParams) -> {
-                response.write("hello world");
-            })
+            .addHandler(Method.GET, "/test", (request, response, pathParams) -> response.write("hello world"))
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000)
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
             .start();
 
         this.routerServer = httpsServer()
@@ -242,6 +247,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.connector = CrankerConnectorBuilder.connector()
+            .withPreferredProtocols(preferredProtocols(repetitionInfo))
             .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
             .withRouterUris(RegistrationUriSuppliers.fixedUris(URI.create("wss://localhost:1234")))
             .withRoute("*")
@@ -249,23 +255,21 @@ public class CrankerConnectorStopTest {
             .withComponentName("cranker-connector-unit-test")
             .build(); // not start
 
-        // call before start
-        assertFalse(() -> connector.stop(1, TimeUnit.SECONDS));
+
+        assertFalse(connector.stop(1, TimeUnit.SECONDS));
     }
 
 
-    @Test
-    public void returnFalseWhenCallingStopMultipleTime() {
+    @RepeatedTest(3)
+    public void throwIllegalStateExceptionWhenCallingStopMultipleTime(RepetitionInfo repetitionInfo) {
 
         this.targetServer = httpsServer()
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(true))
-            .addHandler(Method.GET, "/test", (request, response, pathParams) -> {
-                response.write("hello world");
-            })
+            .addHandler(Method.GET, "/test", (request, response, pathParams) -> response.write("hello world"))
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000)
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
             .start();
 
         this.routerServer = httpsServer()
@@ -275,6 +279,7 @@ public class CrankerConnectorStopTest {
             .start();
 
         this.connector = CrankerConnectorBuilder.connector()
+            .withPreferredProtocols(preferredProtocols(repetitionInfo))
             .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
             .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri(routerServer.uri())))
             .withRoute("*")
@@ -283,10 +288,162 @@ public class CrankerConnectorStopTest {
             .start();
 
         // call stop the first time
-        connector.stop(10, TimeUnit.SECONDS);
+        assertTrue(connector.stop(5, TimeUnit.SECONDS));
 
-        // second time will throw exception
-        assertFalse(() -> connector.stop(1, TimeUnit.SECONDS));
+        // return false for the second time
+        assertFalse(connector.stop(1, TimeUnit.SECONDS));
+    }
+
+
+    @RepeatedTest(3)
+    public void clientDropEarlyCanNotifyMicroservice(RepetitionInfo repetitionInfo) throws IOException {
+
+        final ResponseInfo[] responseInfo = new ResponseInfo[1];
+        final AtomicBoolean serverReceived = new AtomicBoolean(false);
+
+        this.targetServer = httpServer()
+            .addHandler(Method.GET, "/test", (request, response, pathParams) -> {
+                // no response, just holding the tcp connection until client drop
+                final AsyncHandle asyncHandle = request.handleAsync();
+                asyncHandle.addResponseCompleteHandler(info -> {
+                    log.info("http server response complete, info={}", info);
+                    responseInfo[0] = info;
+                });
+                serverReceived.set(true);
+                asyncHandle.write(ByteBuffer.wrap("hello1".getBytes()));
+            })
+            .start();
+
+        log.info("http server started at {}", this.targetServer.uri());
+
+        this.crankerRouter = crankerRouter()
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
+
+        this.routerServer = httpServer()
+            .withHttpPort(0)
+            .addHandler(crankerRouter.createRegistrationHandler())
+            .addHandler(crankerRouter.createHttpHandler())
+            .start();
+
+        this.connector = CrankerConnectorBuilder.connector()
+            .withPreferredProtocols(preferredProtocols(repetitionInfo))
+            .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
+            .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri(routerServer.uri())))
+            .withRoute("*")
+            .withTarget(targetServer.uri())
+            .withComponentName("cranker-connector-unit-test")
+            .start();
+
+        waitForRegistration("*", connector.connectorId(), 2, crankerRouter);
+
+
+        String host = this.routerServer.uri().getHost();
+        int port = this.routerServer.uri().getPort();
+        String path = "/test";
+
+        try (Socket socket = new Socket(host, port);
+             OutputStreamWriter writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8)) {
+            writer.write("GET " + path + " HTTP/1.1\r\n");
+            writer.write("Host: " + host + "\r\n");
+            writer.write("User-Agent: Mozilla/5.0\r\n");
+            writer.write("Connection: Close\r\n");
+            writer.write("\r\n");
+            writer.flush();
+
+            assertEventually(serverReceived::get, is(true));
+
+            // client sending request and close it early
+            writer.close();
+            socket.close();
+
+            AssertUtils.assertEventually(() -> responseInfo[0] != null && !responseInfo[0].completedSuccessfully(), is(true), 10, 100);
+        }
+    }
+
+    @RepeatedTest(3)
+    public void connectorStopCanNotifyServiceAndClient(RepetitionInfo repetitionInfo) {
+
+        final ResponseInfo[] responseInfo = new ResponseInfo[1];
+        final AtomicBoolean serverReceived = new AtomicBoolean(false);
+
+        this.targetServer = httpServer()
+            .addHandler(Method.GET, "/test", (request, response, pathParams) -> {
+                // no response, just holding the tcp connection until client drop
+                final AsyncHandle asyncHandle = request.handleAsync();
+                asyncHandle.addResponseCompleteHandler(info -> {
+                    log.info("http server response complete, info={}", info);
+                    responseInfo[0] = info;
+                });
+                serverReceived.set(true);
+                asyncHandle.write(ByteBuffer.wrap("hello1".getBytes()));
+            })
+            .start();
+
+        log.info("http server started at {}", this.targetServer.uri());
+
+        this.crankerRouter = crankerRouter()
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
+
+        this.routerServer = httpServer()
+            .withHttpPort(0)
+            .addHandler(crankerRouter.createRegistrationHandler())
+            .addHandler(crankerRouter.createHttpHandler())
+            .start();
+
+        this.connector = CrankerConnectorBuilder.connector()
+            .withPreferredProtocols(preferredProtocols(repetitionInfo))
+            .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
+            .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri(routerServer.uri())))
+            .withRoute("*")
+            .withTarget(targetServer.uri())
+            .withComponentName("cranker-connector-unit-test")
+            .start();
+
+        waitForRegistration("*", connector.connectorId(), 2, crankerRouter);
+
+        String host = this.routerServer.uri().getHost();
+        int port = this.routerServer.uri().getPort();
+        String path = "/test";
+
+        // start a client and wait for exception
+        AtomicBoolean isClientCompleted = new AtomicBoolean(false);
+        new Thread(() -> {
+            try (Socket socket = new Socket(host, port);
+                 OutputStreamWriter writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+                writer.write("GET " + path + " HTTP/1.1\r\n");
+                writer.write("Host: " + host + "\r\n");
+                writer.write("User-Agent: Mozilla/5.0\r\n");
+                writer.write("Connection: Close\r\n");
+                writer.write("\r\n");
+                writer.flush();
+
+
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.info(line);
+                }
+                isClientCompleted.set(true);
+            } catch (Exception exception) {
+                isClientCompleted.set(true);
+            }
+        }).start();
+
+        // assert request already arrived server
+        assertEventually(serverReceived::get, is(true));
+
+        // close connector while request still inflight
+        log.info("connector stopping");
+        final boolean isSuccess = connector.stop(1, TimeUnit.SECONDS);
+        log.info("connector stopped, isSuccess={}", isSuccess);
+        assertThat(isSuccess, is(false));
+
+        // microservice and client both aware
+        AssertUtils.assertEventually(() -> responseInfo[0] != null && !responseInfo[0].completedSuccessfully(), is(true), 10, 100);
+        AssertUtils.assertEventually(isClientCompleted::get, is(true));
 
     }
+
 }

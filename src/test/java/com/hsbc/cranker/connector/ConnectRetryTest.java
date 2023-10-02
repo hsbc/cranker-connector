@@ -1,22 +1,24 @@
 package com.hsbc.cranker.connector;
 
 
+import com.hsbc.cranker.mucranker.CrankerRouter;
 import io.muserver.Http2ConfigBuilder;
 import io.muserver.MuServer;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
-import com.hsbc.cranker.mucranker.CrankerRouter;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.RepetitionInfo;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static com.hsbc.cranker.connector.BaseEndToEndTest.startConnectorAndWaitForRegistration;
-import static com.hsbc.cranker.connector.BaseEndToEndTest.waitForRegistration;
+import static com.hsbc.cranker.connector.BaseEndToEndTest.*;
+import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 import static io.muserver.MuServerBuilder.httpServer;
 import static io.muserver.MuServerBuilder.httpsServer;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -26,7 +28,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static scaffolding.Action.swallowException;
 import static scaffolding.AssertUtils.assertEventually;
 import static scaffolding.StringUtils.randomAsciiStringOfLength;
-import static com.hsbc.cranker.mucranker.CrankerRouterBuilder.crankerRouter;
 
 public class ConnectRetryTest {
 
@@ -43,8 +44,8 @@ public class ConnectRetryTest {
         if (connector != null) swallowException(() -> connector.stop(10, TimeUnit.SECONDS));
     }
 
-    @Test
-    public void ifTheRouterStopsThenTheConnectorWillReconnectWhenItStartsAgain() throws Exception {
+    @RepeatedTest(3)
+    public void ifTheRouterStopsThenTheConnectorWillReconnectWhenItStartsAgain(RepetitionInfo repetitionInfo) throws Exception {
 
         this.targetServer = httpServer()
             .addHandler((request, response) -> {
@@ -54,7 +55,7 @@ public class ConnectRetryTest {
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(400)
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
             .start();
         this.router = httpsServer()
             .addHandler(crankerRouter.createRegistrationHandler())
@@ -62,7 +63,7 @@ public class ConnectRetryTest {
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
             .start();
 
-        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer, 2, router);
+        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer, preferredProtocols(repetitionInfo), 2, router);
 
         String body = randomAsciiStringOfLength(100);
         HttpResponse<String> resp = testClient.send(HttpRequest.newBuilder()
@@ -80,7 +81,9 @@ public class ConnectRetryTest {
 
         assertThat(connector.routers().get(0).currentUnsuccessfulConnectionAttempts(), greaterThan(0));
 
-        this.crankerRouter = crankerRouter().withConnectorMaxWaitInMillis(4000).start();
+        this.crankerRouter = crankerRouter()
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
         this.router = httpsServer()
             .withHttpsPort(originalPort)
             .addHandler(crankerRouter.createRegistrationHandler())
@@ -101,20 +104,22 @@ public class ConnectRetryTest {
 
     }
 
-    @Test
-    void connectionErrorListenerIsTriggeredOnWssConnectionFailed() throws InterruptedException, IOException {
+    @RepeatedTest(3)
+    void connectionErrorListenerIsTriggeredOnWssConnectionFailed(RepetitionInfo repetitionInfo) throws InterruptedException, IOException {
 
         AtomicInteger exceptionCount = new AtomicInteger(0);
         int slidingWindow = 2;
         this.targetServer = httpServer()
             .addHandler((request, response) -> {
-                response.write(request.readBodyAsString());
+                final String text = request.readBodyAsString();
+                response.write(text);
                 return true;
             })
             .start();
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000).start();
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
 
         this.router = httpsServer()
             .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
@@ -123,6 +128,7 @@ public class ConnectRetryTest {
             .start();
 
         this.connector = CrankerConnectorBuilder.connector()
+            .withPreferredProtocols(preferredProtocols(repetitionInfo))
             .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
             .withTarget(targetServer.uri())
             .withRoute("*")
@@ -137,11 +143,11 @@ public class ConnectRetryTest {
             })
             .start();
 
-        waitForRegistration("*", slidingWindow, crankerRouter);
+        waitForRegistration("*", connector.connectorId(), slidingWindow, crankerRouter);
 
         assertThat(exceptionCount.get(), equalTo(0));
 
-        verifyHttpRequestWroking();
+        verifyHttpRequestWorking();
 
         int originalPort = router.uri().getPort();
         crankerRouter.stop();
@@ -152,7 +158,7 @@ public class ConnectRetryTest {
         assertEventually(exceptionCount::get, greaterThan(0));
 
         this.crankerRouter = crankerRouter()
-            .withConnectorMaxWaitInMillis(4000)
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
             .start();
         this.router = httpsServer()
             .withHttpsPort(originalPort)
@@ -161,12 +167,12 @@ public class ConnectRetryTest {
             .addHandler(crankerRouter.createHttpHandler())
             .start();
 
-        waitForRegistration("*", slidingWindow, crankerRouter);
+        waitForRegistration("*", connector.connectorId(), slidingWindow, crankerRouter);
 
-        verifyHttpRequestWroking();
+        verifyHttpRequestWorking();
     }
 
-    private void verifyHttpRequestWroking() throws IOException, InterruptedException {
+    private void verifyHttpRequestWorking() throws IOException, InterruptedException {
         String body = "hello";
         HttpResponse<String> resp = testClient.send(HttpRequest.newBuilder()
             .method("POST", HttpRequest.BodyPublishers.ofString(body))
