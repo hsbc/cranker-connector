@@ -285,7 +285,8 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
         if (webSocket != null && !webSocket.isOutputClosed()) {
             webSocket.sendClose(statusCode, error != null ? error.getMessage() : "");
         }
-        if (responseFuture != null && !responseFuture.isDone() && !responseFuture.isCancelled()) {
+        if (responseFuture != null && !responseFuture.isDone() && !responseFuture.isCancelled()
+            && statusCode != WebSocket.NORMAL_CLOSURE) {
             responseFuture.cancel(true);
         }
         if (responseBodySubscription != null) {

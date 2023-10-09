@@ -7,18 +7,23 @@ import io.muserver.MuServer;
 import io.muserver.handlers.ResourceHandlerBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.RepetitionInfo;
 import scaffolding.ByteUtils;
+import scaffolding.StringUtils;
 
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static io.muserver.MuServerBuilder.httpServer;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,26 +38,34 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
         .addHandler((request, response) -> handler.handle(request, response))
         .start();
 
-    private final CrankerConnector connector = CrankerConnectorBuilder.connector()
-        .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
-        .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri(registrationServer.uri())))
-        .withRoute("*")
-        .withTarget(targetServer.uri())
-        .withComponentName("cranker-connector-unit-test")
-        .start();
+    private CrankerConnector connector;
 
     @BeforeEach
-    public void waitForRegistration() {
-        waitForRegistration("*", 2, crankerRouter);
+    void setUp(RepetitionInfo repetitionInfo) {
+        final List<String> preferredProtocols = preferredProtocols(repetitionInfo);
+        connector = CrankerConnectorBuilder.connector()
+            .withPreferredProtocols(preferredProtocols)
+            .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
+            .withRouterUris(RegistrationUriSuppliers.fixedUris(registrationUri(registrationServer.uri())))
+            .withRoute("*")
+            .withTarget(targetServer.uri())
+            .withComponentName("cranker-connector-unit-test")
+            .start();
+
+        waitForRegistration("*", connector.connectorId(), 2, crankerRouter);
+
+        assertEventually(
+            () -> new ArrayList<>(connector.routers().get(0).idleSockets()).get(0).version(),
+            equalTo(preferredProtocols.get(0)));
     }
 
     @AfterEach
     public void stop() throws Exception {
-        connector.stop(10, TimeUnit.SECONDS);
+        assertThat(connector.stop(10, TimeUnit.SECONDS), is(true));
         targetServer.stop();
     }
 
-    @Test
+    @RepeatedTest(3)
     public void postingBodiesWorks() throws Exception {
         final String[] contentLength = new String[1];
         handler = (request, response) -> {
@@ -74,8 +87,9 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
         assertEventually(() -> contentLength[0], equalTo("100000"));
     }
 
-    @Test
+    @RepeatedTest(3)
     public void getRequestsWork() throws Exception {
+
         handler = (request, response) -> {
             response.contentType(ContentTypes.TEXT_PLAIN_UTF8);
             response.sendChunk("This ");
@@ -94,7 +108,47 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
         }
     }
 
-    @Test
+    @RepeatedTest(3)
+    public void getRequestsWork_largeResponse() throws Exception {
+
+        final String text = StringUtils.randomStringOfLength(100000);
+        handler = (request, response) -> {
+            String agent = request.headers().get("user-agent");
+            response.contentType(ContentTypes.TEXT_PLAIN_UTF8);
+            response.write(text + agent);
+            return true;
+        };
+
+        for (int i = 0; i < 10; i++) {
+            HttpResponse<String> resp = testClient.send(HttpRequest.newBuilder()
+                .uri(crankerServer.uri().resolve("/something"))
+                .header("user-agent", "cranker-connector-test-client-" + i)
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertThat(resp.statusCode(), is(200));
+            assertEquals(text + "cranker-connector-test-client-" + i, resp.body());
+        }
+    }
+
+
+    @RepeatedTest(3)
+    public void forwardHeaderSetCorrectly() throws Exception {
+
+        handler = (request, response) -> {
+            response.write(request.headers().get("forwarded"));
+            return true;
+        };
+
+        HttpResponse<String> resp = testClient.send(HttpRequest.newBuilder()
+            .uri(crankerServer.uri().resolve("/something"))
+            .header("user-agent", "cranker-connector-test-client")
+            .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(resp.body(), containsString("by="));
+        assertThat(resp.body(), containsString("for="));
+        assertThat(resp.body(), containsString("host="));
+        assertThat(resp.body(), containsString("proto="));
+    }
+
+    @RepeatedTest(3)
     public void ifTheTargetReturnsGzippedContentThenItIsProxiedCompressed() throws Exception {
         String body = randomAsciiStringOfLength(100000);
         handler = (request, response) -> {
@@ -111,7 +165,7 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
         assertEquals(body, decompressedBody);
     }
 
-    @Test
+    @RepeatedTest(3)
     public void largeResponsesWork() throws Exception {
         String body = Files.readString(Path.of("src/test/resources/web/large-file.txt"));
         handler = ResourceHandlerBuilder.classpathHandler("/web").build();
@@ -125,7 +179,7 @@ public class CrankerConnectorTest extends BaseEndToEndTest {
         assertEquals(body, actual);
     }
 
-    @Test
+    @RepeatedTest(3)
     public void toStringReturnsUsefulInfo() {
         assertThat(connector.toString(), startsWith("CrankerConnector (" + connector.connectorId() + ") registered to: [RouterRegistration"));
     }

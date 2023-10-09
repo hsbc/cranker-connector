@@ -1,5 +1,6 @@
-package com.hsbc.cranker.connector;
+package manual;
 
+import com.hsbc.cranker.connector.*;
 import io.muserver.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,10 +29,7 @@ public class ManualTest {
         MuServer targetServer = muServer()
             .withHttpsPort(12123)
             .withHttp2Config(Http2ConfigBuilder.http2Enabled())
-            .addHandler(Method.GET, "/hi", (request, response, pathParams) -> {
-                System.out.println("received /hi");
-                response.write("hi");
-            })
+            .addHandler(Method.GET, "/hi", (request, response, pathParams) -> response.write("hi"))
             .addHandler(Method.GET, "/health", (request, response, pathParams) -> {
                 response.contentType("text/plain;charset=utf-8");
                 for (HttpConnection con : request.server().activeConnections()) {
