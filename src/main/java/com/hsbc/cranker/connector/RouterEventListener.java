@@ -38,6 +38,7 @@ public interface RouterEventListener {
         private final List<RouterRegistration> unchanged;
 
         /**
+         * The routers that have been newly registered
          * @return The routers that have been newly registered
          */
         public List<RouterRegistration> added() {
@@ -45,6 +46,7 @@ public interface RouterEventListener {
         }
 
         /**
+         * The routers that are no longer being connected to
          * @return The routers that are no longer being connected to
          */
         public List<RouterRegistration> removed() {
@@ -52,6 +54,7 @@ public interface RouterEventListener {
         }
 
         /**
+         * The routers that remain unchanged
          * @return The routers that remain unchanged
          */
         public List<RouterRegistration> unchanged() {

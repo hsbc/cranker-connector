@@ -60,6 +60,7 @@ public interface ConnectorSocket {
         }
 
         /**
+         * completion state
          * @return true if it's in end state
          */
         public boolean isCompleted() {
@@ -68,11 +69,13 @@ public interface ConnectorSocket {
     }
 
     /**
+     * connection state
      * @return The current state of this connection
      */
     State state();
 
     /**
+     * cranker connection protocol version
      * @return The connector socket's version, e.g. "cranker_3.0", "cranker_1.0"
      */
     String version();

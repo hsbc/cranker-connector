@@ -41,12 +41,14 @@ public interface CrankerConnector {
     boolean stop(long timeout, TimeUnit timeUnit);
 
     /**
+     * connectorId
      * @return A unique ID assigned to this connector that is provided to the router for diagnostic reasons.
      */
     String connectorId();
 
     /**
-     * @return Meta data about the routers that this connector is connected to. Provided for diagnostic purposes.
+     * list of the router registration
+     * @return Metadata about the routers that this connector is connected to. Provided for diagnostic purposes.
      */
     List<RouterRegistration> routers();
 }

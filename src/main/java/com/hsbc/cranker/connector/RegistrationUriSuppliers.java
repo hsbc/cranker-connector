@@ -20,6 +20,11 @@ import static java.util.Objects.requireNonNull;
 public class RegistrationUriSuppliers {
 
     /**
+     * preventing constructing RegistrationUriSuppliers, as it's a util class.
+     */
+    private RegistrationUriSuppliers() {}
+
+    /**
      * Creates a supplier that always returns a fixed set of URIs
      * @param uris The URIs to return, in the format <code>wss://crankerrouter.example.org</code>
      * @return A registration URI supplier
