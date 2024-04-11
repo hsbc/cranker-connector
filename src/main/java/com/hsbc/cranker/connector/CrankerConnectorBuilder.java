@@ -16,6 +16,11 @@ import static com.hsbc.cranker.connector.HttpUtils.createHttpClientBuilder;
 public class CrankerConnectorBuilder {
 
     /**
+     * prevent constructing CrankerConnectorBuilder, should use <code>CrankerConnectorBuilder.connector()</code> instead.
+     */
+    private CrankerConnectorBuilder() {}
+
+    /**
      * cranker protocol 1.0
      */
     public final static String CRANKER_PROTOCOL_1 = "cranker_1.0";
@@ -241,6 +246,7 @@ public class CrankerConnectorBuilder {
     }
 
     /**
+     * constructing a new connector builder
      * @return A new connector builder
      */
     public static CrankerConnectorBuilder connector() {

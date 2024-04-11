@@ -5,13 +5,11 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.Collection;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -21,26 +19,31 @@ import java.util.stream.Stream;
 public interface RouterRegistration {
 
     /**
+     * The number of expected idle connections to this router
      * @return The number of expected idle connections to this router
      */
     int expectedWindowSize();
 
     /**
+     * The current number of idle connections
      * @return The current number of idle connections
      */
     int idleSocketSize();
 
     /**
+     * The sockets that are currently connected to the router, ready to process a request
      * @return The sockets that are currently connected to the router, ready to process a request
      */
     Collection<ConnectorSocket> idleSockets();
 
     /**
+     * The router's websocket registration URI
      * @return The router's websocket registration URI
      */
     URI registrationUri();
 
     /**
+     * The current state of the connection to this router
      * @return The current state of the connection to this router
      */
     State state();
@@ -54,6 +57,7 @@ public interface RouterRegistration {
     int currentUnsuccessfulConnectionAttempts();
 
     /**
+     * last connection error
      * @return If this socket is not connected due to an error, then this is the reason; otherwise this is null.
      */
     Throwable lastConnectionError();
@@ -172,6 +176,16 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         return protocols.size() > 1 ? protocols.subList(1, protocols.size()).toArray(new String[0]) : new String[0];
     }
 
+    private void addAnythingMissingWithBackoff() {
+        if (isAddMissingScheduled.compareAndSet(false, true)) {
+            int attempts = connectAttempts.incrementAndGet();
+            executor.schedule(() -> {
+                isAddMissingScheduled.set(false);
+                addAnyMissing();
+            }, retryAfterMillis(attempts), TimeUnit.MILLISECONDS);
+        }
+    }
+
     private void addAnyMissing() {
         while (state == State.ACTIVE && idleSockets.size() < windowSize) {
 
@@ -200,13 +214,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                         if (routerEventListener != null) {
                             routerEventListener.onSocketConnectionError(this, throwable);
                         }
-                        if (isAddMissingScheduled.compareAndSet(false, true)) {
-                            connectAttempts.incrementAndGet();
-                            executor.schedule(() -> {
-                                isAddMissingScheduled.set(false);
-                                addAnyMissing();
-                            }, retryAfterMillis(), TimeUnit.MILLISECONDS);
-                        }
+                        addAnythingMissingWithBackoff();
                     }
                 });
         }
@@ -214,9 +222,10 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
 
     /**
      * @return Milliseconds to wait until trying again, increasing exponentially, capped at 10 seconds
+     * @param retryAttempts retry attempts
      */
-    private int retryAfterMillis() {
-        return 500 + Math.min(10000, (int) Math.pow(2, connectAttempts.get()));
+    private static int retryAfterMillis(int retryAttempts) {
+        return 500 + Math.min(10000, (int) Math.pow(2, retryAttempts));
     }
 
     @Override
@@ -230,7 +239,11 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
     public void onClose(ConnectorSocket socket, Throwable error) {
         runningSockets.remove(socket);
         idleSockets.remove(socket);
-        addAnyMissing();
+        if (error == null) {
+            addAnyMissing();
+        } else {
+            addAnythingMissingWithBackoff();
+        }
     }
 
     @Override
