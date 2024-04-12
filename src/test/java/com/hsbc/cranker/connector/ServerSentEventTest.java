@@ -8,6 +8,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.RepetitionInfo;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scaffolding.SseTestClient;
 
 import java.util.Arrays;
@@ -22,6 +24,8 @@ import static org.hamcrest.Matchers.*;
 import static scaffolding.Action.swallowException;
 
 public class ServerSentEventTest extends BaseEndToEndTest {
+
+    private static final Logger log = LoggerFactory.getLogger(ServerSentEventTest.class);
 
     private SseTestClient client;
     private MuServer targetServer;
@@ -127,6 +131,8 @@ public class ServerSentEventTest extends BaseEndToEndTest {
 
         this.client = SseTestClient.startSse(router.uri().resolve("/sse/counter"));
         this.client.waitUntilError(100, TimeUnit.SECONDS);
+
+        log.info("client received: {}", this.client.getMessages());
 
         assertThat(this.client.getMessages(), contains(
             equalTo("onOpen:"),
