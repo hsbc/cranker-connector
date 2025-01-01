@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class HttpUtilsTest {
 
     @Test
-    void nonTrustAllClientThrowsExceptionWhenConnectToSelfSignedCertServer() throws IOException, InterruptedException {
+    void nonTrustAllClientThrowsExceptionWhenConnectToSelfSignedCertServer() {
 
         MuServer server = MuServerBuilder.httpsServer()
             .withHttpsConfig(HttpsConfigBuilder.unsignedLocalhost())
