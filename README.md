@@ -81,14 +81,12 @@ use HTTPS/WSS or plain HTTP/WS. If using a secure connection, then the default J
 self-signed certs are used (which is common for localhost communications), you can specify a client that trusts
 all SSL certs on the `CrankerConnectorBuilder`.
 
-Note that if you need to disable hostname verification (e.g. when connecting to routers via IP addresses) then this needs
-to be set as a system property before any HttpClient code is used by setting a system property.
+Note that if you need to disable hostname verification (e.g., when connecting to routers via IP addresses), we provide a handy helper `CrankerConnectorBuilder.createHttpClient(true).build()` to create a JDK HTTP client instance that trusts all certificates and disables hostname verification.
 
 The following shows a full example:
 
 ````java
 public static void main(String[] args) {
-    System.setProperty("jdk.internal.httpclient.disableHostnameVerification", "true");
 
     URI targetServiceUri = startedWebServerUri();
     

@@ -1,8 +1,7 @@
 package com.hsbc.cranker.connector;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.*;
+import java.net.Socket;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -63,19 +62,45 @@ class HttpUtils {
     private static void trustAll(HttpClient.Builder builder) {
         try {
             final TrustManager[] trustAllCerts = new TrustManager[]{
-                new X509TrustManager() {
-                    @Override
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                    }
-                    @Override
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                    }
-                    @Override
+                new X509ExtendedTrustManager() {
                     public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
+                        return null;
                     }
-                }
-            };
+
+                    public void checkClientTrusted(
+                        final X509Certificate[] a_certificates,
+                        final String a_auth_type) {
+                    }
+
+                    public void checkServerTrusted(
+                        final X509Certificate[] a_certificates,
+                        final String a_auth_type) {
+                    }
+
+                    public void checkClientTrusted(
+                        final X509Certificate[] a_certificates,
+                        final String a_auth_type,
+                        final Socket a_socket) {
+                    }
+
+                    public void checkServerTrusted(
+                        final X509Certificate[] a_certificates,
+                        final String a_auth_type,
+                        final Socket a_socket) {
+                    }
+
+                    public void checkClientTrusted(
+                        final X509Certificate[] a_certificates,
+                        final String a_auth_type,
+                        final SSLEngine a_engine) {
+                    }
+
+                    public void checkServerTrusted(
+                        final X509Certificate[] a_certificates,
+                        final String a_auth_type,
+                        final SSLEngine a_engine) {
+                    }
+                }};
             SSLContext sslContext = SSLContext.getInstance("SSL");
             sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
             builder.sslContext(sslContext);
