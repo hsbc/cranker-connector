@@ -73,6 +73,22 @@ CrankerConnectorBuilder.connector()
     })
 ````
 
+Secure Registration
+-------------------
+
+If you want to secure the registration of your service with the router by providing an auth header, you can do so by 
+providing `auth_header` and `auth_token` like below. Cranker router side can then verify the auth header and token to 
+ensure that only valid services are registered.
+
+```java
+CrankerConnectorBuilder.connector()
+    .withRegistrationEventListener(new RegistrationEventListener() {
+        public void beforeRegisterToRouter(WebSocket.Builder builder) {
+            builder.header("auth_header", "auth_token");
+        }
+    })
+```
+
 SSL Configuration
 -----------------
 

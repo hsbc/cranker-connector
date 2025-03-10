@@ -42,6 +42,7 @@ public class CrankerConnectorBuilder {
     private final String connectorId = UUID.randomUUID().toString();
     private RouterEventListener routerEventListener;
     private ProxyEventListener proxyEventListener;
+    private RegistrationEventListener registrationEventListener;
     private int routerUpdateInterval = 1;
     private TimeUnit routerUpdateTimeUnit = TimeUnit.MINUTES;
     private int routerDeregisterTimeout = 1;
@@ -199,6 +200,18 @@ public class CrankerConnectorBuilder {
     }
 
     /**
+     * Sets a listener that is notified whenever there is requests proxying.
+     *
+     * @param listener The listener to be called when proxying requests
+     * @return This builder
+     */
+    public CrankerConnectorBuilder withRegistrationEventListener(RegistrationEventListener listener) {
+        this.registrationEventListener = listener;
+        return this;
+    }
+
+
+    /**
      * Optionally sets an HTTP client used. If not set, then a default one will be used.
      * <p>An HTTP builder suitable for using can be created with {@link #createHttpClient(boolean)}</p>
      *
@@ -267,7 +280,8 @@ public class CrankerConnectorBuilder {
 
         HttpClient clientToUse = client != null ? client : createHttpClient(false).build();
         ProxyEventListener proxyEventListenerToUse = proxyEventListener != null ? proxyEventListener : new ProxyEventListener(){};
-        var factory = new RouterRegistrationImpl.Factory(preferredProtocols, clientToUse, domain, route, slidingWindowSize, target, routerEventListener, proxyEventListenerToUse);
+        RegistrationEventListener registrationEventListenerToUse = registrationEventListener != null ? registrationEventListener : new RegistrationEventListener(){};
+        var factory = new RouterRegistrationImpl.Factory(preferredProtocols, clientToUse, domain, route, slidingWindowSize, target, routerEventListener, proxyEventListenerToUse, registrationEventListenerToUse);
         return new CrankerConnectorImpl(connectorId, factory, crankerUris, componentName, routerEventListener,
             this.routerUpdateInterval, this.routerUpdateTimeUnit, this.routerDeregisterTimeout, this.routerDeregisterTimeUnit);
     }
