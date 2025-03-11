@@ -200,9 +200,9 @@ public class CrankerConnectorBuilder {
     }
 
     /**
-     * Sets a listener that is notified whenever there is requests proxying.
+     * Sets a listener for events related to cranker registrations
      *
-     * @param listener The listener to be called when proxying requests
+     * @param listener The listener to be called
      * @return This builder
      */
     public CrankerConnectorBuilder withRegistrationEventListener(RegistrationEventListener listener) {

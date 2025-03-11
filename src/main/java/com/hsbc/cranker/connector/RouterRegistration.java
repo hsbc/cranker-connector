@@ -203,7 +203,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                 .header("Domain", domain)
                 .connectTimeout(Duration.ofMillis(5000));
 
-            registrationEventListener.beforeRegisterToRouter(builder);
+            registrationEventListener.beforeRegisterToRouter(new RouterRegistrationContextImpl(builder, this));
 
             builder
                 .buildAsync(registrationUri, connectorSocket)

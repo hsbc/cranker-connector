@@ -13,7 +13,6 @@ import org.junit.jupiter.api.RepetitionInfo;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.http.WebSocket;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -92,7 +91,7 @@ public class CrankerConnectorListenerTest {
                 @Override
                 public HttpRequest beforeProxyToTarget(HttpRequest request, HttpRequest.Builder requestBuilder) {
                     // add extra header
-                    final String clientHeader = request.headers().firstValue("x-client-header").orElseGet(() -> "");
+                    final String clientHeader = request.headers().firstValue("x-client-header").orElse("");
                     requestBuilder.header("x-connector-header", "connector-value_" + clientHeader);
                     return requestBuilder.build();
                 }
@@ -188,8 +187,8 @@ public class CrankerConnectorListenerTest {
                     .collect(toList())))
                 .withRegistrationEventListener(new RegistrationEventListener() {
                     @Override
-                    public void beforeRegisterToRouter(WebSocket.Builder builder) {
-                        builder.header(authHeader, authToken);
+                    public void beforeRegisterToRouter(RouterRegistrationContext context) {
+                        context.getWebsocketBuilder().header(authHeader, authToken);
                     }
                 })
                 .withSlidingWindowSize(2)
