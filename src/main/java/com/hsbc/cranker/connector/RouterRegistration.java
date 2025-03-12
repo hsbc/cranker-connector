@@ -105,11 +105,12 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
     private volatile Throwable lastConnectionError;
     private final RouterEventListener routerEventListener;
     private final ProxyEventListener proxyEventListener;
+    private final RegistrationEventListener registrationEventListener;
     private final AtomicBoolean isAddMissingScheduled = new AtomicBoolean(false);
 
     RouterRegistrationImpl(List<String> preferredProtocols, HttpClient client, URI registrationUri, String domain, String route, int windowSize, URI targetUri,
                            ScheduledExecutorService executor, RouterEventListener routerEventListener,
-                           ProxyEventListener proxyEventListener) {
+                           ProxyEventListener proxyEventListener, RegistrationEventListener registrationEventListener) {
         this.preferredProtocols = preferredProtocols;
         this.client = client;
         this.registrationUri = registrationUri;
@@ -120,6 +121,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         this.executor = executor;
         this.routerEventListener = routerEventListener;
         this.proxyEventListener = proxyEventListener;
+        this.registrationEventListener = registrationEventListener;
     }
 
     void start() {
@@ -194,12 +196,16 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
             );
             idleSockets.add(connectorSocket);
 
-            client.newWebSocketBuilder()
+            WebSocket.Builder builder = client.newWebSocketBuilder()
                 .header(CRANKER_PROTOCOL, "1.0") // for backward compatibility
                 .subprotocols(preferredProtocols.get(0), getLessPreferredProtocol(preferredProtocols))
                 .header("Route", route)
                 .header("Domain", domain)
-                .connectTimeout(Duration.ofMillis(5000))
+                .connectTimeout(Duration.ofMillis(5000));
+
+            registrationEventListener.beforeRegisterToRouter(new RouterRegistrationContextImpl(builder, this));
+
+            builder
                 .buildAsync(registrationUri, connectorSocket)
                 .whenComplete((webSocket, throwable) -> {
                     if (throwable == null) {
@@ -305,9 +311,10 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         private volatile ScheduledExecutorService executor;
         private final RouterEventListener routerEventListener;
         private final ProxyEventListener proxyEventListener;
+        private final RegistrationEventListener registrationEventListener;
 
         Factory(List<String> preferredProtocols, HttpClient client, String domain, String route, int windowSize, URI targetUri,
-                RouterEventListener routerEventListener, ProxyEventListener proxyEventListener) {
+                RouterEventListener routerEventListener, ProxyEventListener proxyEventListener, RegistrationEventListener registrationEventListenerToUse) {
             this.preferredProtocols = preferredProtocols;
             this.client = client;
             this.domain = domain;
@@ -316,10 +323,11 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
             this.targetUri = targetUri;
             this.routerEventListener = routerEventListener;
             this.proxyEventListener = proxyEventListener;
+            this.registrationEventListener = registrationEventListenerToUse;
         }
 
         RouterRegistrationImpl create(URI registrationUri) {
-            return new RouterRegistrationImpl(preferredProtocols, client, registrationUri, domain, route, windowSize, targetUri, executor, routerEventListener, proxyEventListener);
+            return new RouterRegistrationImpl(preferredProtocols, client, registrationUri, domain, route, windowSize, targetUri, executor, routerEventListener, proxyEventListener, registrationEventListener);
         }
 
         void start() {

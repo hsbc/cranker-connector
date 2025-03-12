@@ -7,7 +7,6 @@ import io.muserver.Method;
 import io.muserver.MuServer;
 import io.muserver.RouteHandler;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.RepetitionInfo;
 
@@ -26,6 +25,8 @@ import static java.util.stream.Collectors.toList;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static scaffolding.Action.swallowException;
 
 public class CrankerConnectorListenerTest {
@@ -38,19 +39,6 @@ public class CrankerConnectorListenerTest {
     private MuServer routerServer;
     private CrankerConnector connector;
 
-    @BeforeEach
-    public void before() {
-
-        this.crankerRouter = crankerRouter()
-            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
-            .start();
-
-        this.routerServer = httpsServer()
-            .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
-            .addHandler(crankerRouter.createRegistrationHandler())
-            .addHandler(crankerRouter.createHttpHandler())
-            .start();
-    }
 
     @AfterEach
     public void after() {
@@ -62,6 +50,16 @@ public class CrankerConnectorListenerTest {
 
     @RepeatedTest(3)
     void testProxyEventListenerInvoked(RepetitionInfo repetitionInfo) throws Exception {
+
+        this.crankerRouter = crankerRouter()
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
+
+        this.routerServer = httpsServer()
+            .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
+            .addHandler(crankerRouter.createRegistrationHandler())
+            .addHandler(crankerRouter.createHttpHandler())
+            .start();
 
         final RouteHandler handler = (request, response, pathParams) -> {
             StringBuilder bodyBuilder = new StringBuilder();
@@ -93,7 +91,7 @@ public class CrankerConnectorListenerTest {
                 @Override
                 public HttpRequest beforeProxyToTarget(HttpRequest request, HttpRequest.Builder requestBuilder) {
                     // add extra header
-                    final String clientHeader = request.headers().firstValue("x-client-header").orElseGet(() -> "");
+                    final String clientHeader = request.headers().firstValue("x-client-header").orElse("");
                     requestBuilder.header("x-connector-header", "connector-value_" + clientHeader);
                     return requestBuilder.build();
                 }
@@ -124,6 +122,92 @@ public class CrankerConnectorListenerTest {
         assertThat(body_2, containsString("x-connector-header:connector-value_client-value\n"));
         assertThat(body_2, containsString("this is request body string"));
 
+    }
+
+    @RepeatedTest(3)
+    void testRegistrationEventListener_supplyingAuthHeader(RepetitionInfo repetitionInfo) throws Exception {
+
+        final String authHeader = "authHeader";
+        final String authToken = "authToken";
+
+        this.crankerRouter = crankerRouter()
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
+
+        // router server with auth header checking
+        this.routerServer = httpsServer()
+            .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(false))
+            .addHandler(((muRequest, muResponse) -> {
+                if (!muRequest.uri().getPath().startsWith("/register")) {
+                    return false;
+                }
+                if (muRequest.headers().contains(authHeader) && muRequest.headers().get(authHeader).equals(authToken)) {
+                    return false;
+                }
+
+                muResponse.status(400);
+                muResponse.write("Bad Request: missing auth header");
+                return true;
+            }))
+            .addHandler(crankerRouter.createRegistrationHandler())
+            .addHandler(crankerRouter.createHttpHandler())
+            .start();
+
+        this.targetServer = httpsServer()
+            .withHttp2Config(Http2ConfigBuilder.http2Config().enabled(true))
+            .addHandler((request, response) -> {
+                response.write("good");
+                return true;
+            })
+            .start();
+
+        CrankerConnector badConnector = null;
+        try {
+
+            // bad connector WITHOUT auth header
+            badConnector = CrankerConnectorBuilder.connector()
+                .withPreferredProtocols(preferredProtocols(repetitionInfo))
+                .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
+                .withTarget(targetServer.uri())
+                .withRoute("bad")
+                .withRouterUris(RegistrationUriSuppliers.fixedUris(Stream.of(new MuServer[]{this.routerServer})
+                    .map(s -> BaseEndToEndTest.registrationUri(s.uri()))
+                    .collect(toList())))
+                .withSlidingWindowSize(2)
+                .start();
+
+            // good connector with auth header provided
+            this.connector = CrankerConnectorBuilder.connector()
+                .withPreferredProtocols(preferredProtocols(repetitionInfo))
+                .withHttpClient(CrankerConnectorBuilder.createHttpClient(true).build())
+                .withTarget(targetServer.uri())
+                .withRoute("good")
+                .withRouterUris(RegistrationUriSuppliers.fixedUris(Stream.of(new MuServer[]{this.routerServer})
+                    .map(s -> BaseEndToEndTest.registrationUri(s.uri()))
+                    .collect(toList())))
+                .withRegistrationEventListener(new RegistrationEventListener() {
+                    @Override
+                    public void beforeRegisterToRouter(RouterRegistrationContext context) {
+                        context.getWebsocketBuilder().header(authHeader, authToken);
+                    }
+                })
+                .withSlidingWindowSize(2)
+                .start();
+
+            BaseEndToEndTest.waitForRegistration("good", connector.connectorId(), 2, crankerRouter);
+
+            assertFalse(crankerRouter.collectInfo().services().stream().anyMatch(service -> service.route().equals("bad")));
+            assertThat(httpClient.send(HttpRequest.newBuilder().uri(this.routerServer.uri().resolve("/bad"))
+                .build(), HttpResponse.BodyHandlers.ofString()).statusCode(), is(404));
+
+            assertTrue(crankerRouter.collectInfo().services().stream().anyMatch(service -> service.route().equals("good")));
+            assertThat(httpClient.send(HttpRequest.newBuilder().uri(this.routerServer.uri().resolve("/good"))
+                .build(), HttpResponse.BodyHandlers.ofString()).statusCode(), is(200));
+        } finally {
+            if (badConnector != null) {
+                badConnector.stop(10, TimeUnit.SECONDS);
+            }
+        }
     }
 
 }
