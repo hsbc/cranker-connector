@@ -3,9 +3,7 @@ package com.hsbc.cranker.connector;
 
 import com.hsbc.cranker.mucranker.CrankerRouter;
 import io.muserver.*;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.RepeatedTest;
-import org.junit.jupiter.api.RepetitionInfo;
+import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scaffolding.AssertUtils;
@@ -50,11 +48,39 @@ public class CrankerConnectorStopTest {
 
     @AfterEach
     public void after() {
-        if (connector != null) swallowException(() -> connector.stop(10, TimeUnit.SECONDS));
+        if (connector != null) connector.stop(10, TimeUnit.SECONDS);
         if (targetServer != null) swallowException(targetServer::stop);
         if (routerServer != null) swallowException(routerServer::stop);
         if (crankerRouter != null) swallowException(crankerRouter::stop);
         swallowException(executorService::shutdownNow);
+    }
+
+    @Test
+    @Timeout(30)
+    void theHttpClientCanBeStopped() {
+
+        this.targetServer = httpsServer().start();
+
+        this.crankerRouter = crankerRouter()
+            .withSupportedCrankerProtocols(List.of("cranker_3.0", "cranker_1.0"))
+            .start();
+
+        this.routerServer = httpsServer()
+            .addHandler(crankerRouter.createRegistrationHandler())
+            .addHandler(crankerRouter.createHttpHandler())
+            .start();
+
+        this.connector = startConnectorAndWaitForRegistration(crankerRouter, "*", targetServer,
+            List.of("cranker_1.0"),2, this.routerServer);
+
+        assertThat(this.connector.stop(10, TimeUnit.SECONDS), is(true));
+        assertDoesNotThrow(() -> {
+            Object client = connector.httpClient();
+            if (client instanceof AutoCloseable) {
+                assertDoesNotThrow(() -> ((AutoCloseable)client).close());
+            }
+        });
+        this.connector = null;
     }
 
     @RepeatedTest(3)

@@ -283,7 +283,7 @@ public class CrankerConnectorBuilder {
         RegistrationEventListener registrationEventListenerToUse = registrationEventListener != null ? registrationEventListener : new RegistrationEventListener(){};
         var factory = new RouterRegistrationImpl.Factory(preferredProtocols, clientToUse, domain, route, slidingWindowSize, target, routerEventListener, proxyEventListenerToUse, registrationEventListenerToUse);
         return new CrankerConnectorImpl(connectorId, factory, crankerUris, componentName, routerEventListener,
-            this.routerUpdateInterval, this.routerUpdateTimeUnit, this.routerDeregisterTimeout, this.routerDeregisterTimeUnit);
+            this.routerUpdateInterval, this.routerUpdateTimeUnit, this.routerDeregisterTimeout, this.routerDeregisterTimeUnit, clientToUse);
     }
 
     /**
