@@ -140,6 +140,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
                 @Override
                 public void onOpen(WebSocket webSocket) {
                     webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "");
+                    webSocket.request(1); // so that we can receive the server's close message and shut down gracefully
                 }
             })
             .thenCompose(webSocket -> {
