@@ -1,6 +1,7 @@
 package com.hsbc.cranker.connector;
 
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -51,6 +52,12 @@ public interface CrankerConnector {
      * @return Metadata about the routers that this connector is connected to. Provided for diagnostic purposes.
      */
     List<RouterRegistration> routers();
+
+    /**
+     * Gets the connector's HTTP client
+     * @return the HTTP client used for the connections to the router and target server
+     */
+    HttpClient httpClient();
 }
 
 class CrankerConnectorImpl implements CrankerConnector {
@@ -66,12 +73,13 @@ class CrankerConnectorImpl implements CrankerConnector {
     private final TimeUnit routerUpdateTimeUnit;
     private final int routerDeregisterTimeout;
     private final TimeUnit routerDeregisterTimeUnit;
+    private final HttpClient httpClient;
 
     CrankerConnectorImpl(String connectorId, RouterRegistrationImpl.Factory routerConFactory,
                          Supplier<Collection<URI>> crankerUriSupplier, String componentName,
                          RouterEventListener routerEventListener,
                          int routerUpdateInterval, TimeUnit routerUpdateTimeUnit,
-                         int routerDeregisterTimeout, TimeUnit routerDeregisterTimeUnit) {
+                         int routerDeregisterTimeout, TimeUnit routerDeregisterTimeUnit, HttpClient httpClient) {
         this.componentName = componentName;
         this.connectorId = connectorId;
         this.routerConFactory = routerConFactory;
@@ -81,6 +89,7 @@ class CrankerConnectorImpl implements CrankerConnector {
         this.routerUpdateTimeUnit = routerUpdateTimeUnit;
         this.routerDeregisterTimeout = routerDeregisterTimeout;
         this.routerDeregisterTimeUnit = routerDeregisterTimeUnit;
+        this.httpClient = httpClient;
     }
 
     CompletableFuture<Void> updateRoutersAsync() {
@@ -209,5 +218,10 @@ class CrankerConnectorImpl implements CrankerConnector {
     @Override
     public String toString() {
         return "CrankerConnector (" + connectorId + ") registered to: " + routers;
+    }
+
+    @Override
+    public HttpClient httpClient() {
+        return httpClient;
     }
 }
