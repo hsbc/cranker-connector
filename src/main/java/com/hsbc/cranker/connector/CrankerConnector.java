@@ -54,6 +54,7 @@ public interface CrankerConnector {
     List<RouterRegistration> routers();
 
     /**
+     * Gets the connector's HTTP client
      * @return the HTTP client used for the connections to the router and target server
      */
     HttpClient httpClient();
