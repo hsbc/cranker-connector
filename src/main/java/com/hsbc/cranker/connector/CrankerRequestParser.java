@@ -1,11 +1,14 @@
 package com.hsbc.cranker.connector;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.Arrays;
 
 /**
  * Request from router to connector
  */
 class CrankerRequestParser {
+    private static final Logger LOG = LoggerFactory.getLogger(CrankerRequestParser.class);
     public static final String REQUEST_BODY_PENDING_MARKER = "_1";
     public static final String REQUEST_HAS_NO_BODY_MARKER = "_2";
     public static final String REQUEST_BODY_ENDED_MARKER = "_3";
@@ -58,7 +61,12 @@ class CrankerRequestParser {
             if (headerLine.toLowerCase().startsWith("content-length:")) {
                 String[] split = headerLine.split(":");
                 if (split.length == 2) {
-                    return Long.parseLong(split[1].trim());
+                    try {
+                        return Long.parseLong(split[1].trim());
+                    } catch (NumberFormatException e) {
+                        LOG.warn("Invalid Content-Length header value: " + split[1].trim());
+                        return -1;
+                    }
                 }
             }
         }
