@@ -1,5 +1,7 @@
 package com.hsbc.cranker.connector;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -18,6 +20,7 @@ import java.util.function.Function;
  * A single connection between a connector and a router in protocol cranker_v3 implementation
  */
 public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
+    private static final Logger LOG = LoggerFactory.getLogger(ConnectorSocketV3.class);
 
     static final byte MESSAGE_TYPE_DATA = 0;
     static final byte MESSAGE_TYPE_HEADER = 1;
@@ -698,7 +701,12 @@ public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
                 if (headerLine.toLowerCase().startsWith("content-length:")) {
                     String[] split = headerLine.split(":");
                     if (split.length == 2) {
-                        return Long.parseLong(split[1].trim());
+                        try {
+                            return Long.parseLong(split[1].trim());
+                        } catch (NumberFormatException e) {
+                            LOG.warn("Invalid Content-Length header value: " + split[1].trim());
+                            return -1;
+                        }
                     }
                 }
             }
