@@ -290,6 +290,10 @@ public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
                         }
                     });
                     context.sendPendingDataMaybe();
+                } else {
+                    // no context (stream already reset/removed): release the buffer so the
+                    // returned future is always completed and the runtime doesn't leak it
+                    releaseByteBuffer.complete(null);
                 }
                 webSocket.request(1);
                 break;
