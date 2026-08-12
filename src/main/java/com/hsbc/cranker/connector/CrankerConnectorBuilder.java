@@ -132,12 +132,21 @@ public class CrankerConnectorBuilder {
      */
     public CrankerConnectorBuilder withRoute(String route) {
         if (route == null) throw new IllegalArgumentException("route cannot be null");
-        if ("*".equals(route) || route.matches("[a-zA-Z0-9/_-]+")) {
+        if (isValidRoute(route)) {
             this.route = route;
             return this;
         } else {
-            throw new IllegalArgumentException("Routes must contain only letters, numbers, underscores or hyphens");
+            throw new IllegalArgumentException("Routes must contain only letters, numbers, slashes, dots, underscores or hyphens; path segments cannot end with a dot or contain two consecutive dots");
         }
+    }
+
+    private static boolean isValidRoute(String route) {
+        if ("*".equals(route)) return true;
+        if (!route.matches("[a-zA-Z0-9/_.-]+")) return false;
+        for (String segment : route.split("/", -1)) {
+            if (segment.endsWith(".") || segment.contains("..")) return false;
+        }
+        return true;
     }
 
     /**
