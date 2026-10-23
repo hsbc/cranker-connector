@@ -9,10 +9,10 @@ interface ConnectorSocketListener {
     void onConnectionAcquired(ConnectorSocket socket);
 
     /**
-     * Called when the socket close
+     * Called when the socket closes
      *
      * @param socket ConnectorSocket on close
-     * @param error null if there are no error
+     * @param error null if there is no error
      */
     void onClose(ConnectorSocket socket, Throwable error);
 }

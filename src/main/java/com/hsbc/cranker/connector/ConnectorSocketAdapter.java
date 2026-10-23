@@ -126,7 +126,7 @@ public class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSock
 
     /**
      * Adapt the complete action to cranker v3/v1 implementation.
-     * @return CompletableFuture which resolved when the complete action done
+     * @return CompletableFuture which is resolved when the complete action is done
      */
     public CompletableFuture<Void> complete() {
         if (CRANKER_PROTOCOL_3.equals(protocol) && underlying != null) {
@@ -139,7 +139,7 @@ public class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSock
     }
 
     /**
-     * get the underlying cranker protocol which the socket using.
+     * get the underlying cranker protocol which the socket is using.
      * @return protocol
      */
     public String getProtocol() {
