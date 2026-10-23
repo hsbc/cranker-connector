@@ -105,12 +105,14 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
     private volatile Throwable lastConnectionError;
     private final RouterEventListener routerEventListener;
     private final ProxyEventListener proxyEventListener;
+    private final ConnectorInstrumentation instrumentation;
     private final RegistrationEventListener registrationEventListener;
     private final AtomicBoolean isAddMissingScheduled = new AtomicBoolean(false);
 
     RouterRegistrationImpl(List<String> preferredProtocols, HttpClient client, URI registrationUri, String domain, String route, int windowSize, URI targetUri,
                            ScheduledExecutorService executor, RouterEventListener routerEventListener,
-                           ProxyEventListener proxyEventListener, RegistrationEventListener registrationEventListener) {
+                           ProxyEventListener proxyEventListener, RegistrationEventListener registrationEventListener,
+                           ConnectorInstrumentation instrumentation) {
         this.preferredProtocols = preferredProtocols;
         this.client = client;
         this.registrationUri = registrationUri;
@@ -121,6 +123,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         this.executor = executor;
         this.routerEventListener = routerEventListener;
         this.proxyEventListener = proxyEventListener;
+        this.instrumentation = instrumentation;
         this.registrationEventListener = registrationEventListener;
     }
 
@@ -193,7 +196,7 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         while (state == State.ACTIVE && idleSockets.size() < windowSize) {
 
             ConnectorSocketAdapter connectorSocket = new ConnectorSocketAdapter(
-                targetUri, client, this, proxyEventListener, executor
+                targetUri, client, this, proxyEventListener, executor, instrumentation
             );
             idleSockets.add(connectorSocket);
 
@@ -312,10 +315,12 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
         private volatile ScheduledExecutorService executor;
         private final RouterEventListener routerEventListener;
         private final ProxyEventListener proxyEventListener;
+        private final ConnectorInstrumentation instrumentation;
         private final RegistrationEventListener registrationEventListener;
 
         Factory(List<String> preferredProtocols, HttpClient client, String domain, String route, int windowSize, URI targetUri,
-                RouterEventListener routerEventListener, ProxyEventListener proxyEventListener, RegistrationEventListener registrationEventListenerToUse) {
+                RouterEventListener routerEventListener, ProxyEventListener proxyEventListener, RegistrationEventListener registrationEventListenerToUse,
+                ConnectorInstrumentation instrumentation) {
             this.preferredProtocols = preferredProtocols;
             this.client = client;
             this.domain = domain;
@@ -324,11 +329,12 @@ class RouterRegistrationImpl implements ConnectorSocketListener, RouterRegistrat
             this.targetUri = targetUri;
             this.routerEventListener = routerEventListener;
             this.proxyEventListener = proxyEventListener;
+            this.instrumentation = instrumentation;
             this.registrationEventListener = registrationEventListenerToUse;
         }
 
         RouterRegistrationImpl create(URI registrationUri) {
-            return new RouterRegistrationImpl(preferredProtocols, client, registrationUri, domain, route, windowSize, targetUri, executor, routerEventListener, proxyEventListener, registrationEventListener);
+            return new RouterRegistrationImpl(preferredProtocols, client, registrationUri, domain, route, windowSize, targetUri, executor, routerEventListener, proxyEventListener, registrationEventListener, instrumentation);
         }
 
         void start() {

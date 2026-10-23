@@ -2,8 +2,12 @@ package com.hsbc.cranker.connector;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -42,6 +46,8 @@ public class CrankerConnectorBuilder {
     private final String connectorId = UUID.randomUUID().toString();
     private RouterEventListener routerEventListener;
     private ProxyEventListener proxyEventListener;
+    private final List<ConnectorInstrumentationListener> instrumentationListeners = new ArrayList<>();
+    private final Set<String> instrumentationListenerKeys = new HashSet<>();
     private RegistrationEventListener registrationEventListener;
     private int routerUpdateInterval = 1;
     private TimeUnit routerUpdateTimeUnit = TimeUnit.MINUTES;
@@ -209,6 +215,33 @@ public class CrankerConnectorBuilder {
     }
 
     /**
+     * Registers advanced instrumentation around target-request routing.
+     * <p>Use this for integrations that establish temporary tracing or logging context and
+     * restore it after synchronous submission. For ordinary request inspection, modification
+     * or proxy-error notifications, use {@link #withProxyEventListener(ProxyEventListener)} instead.</p>
+     * <p>The listener is appended independently of the single proxy listener.
+     * Its {@link ConnectorInstrumentationListener#beforeTargetDispatch(TargetDispatchInfo)} callback
+     * runs before {@link ProxyEventListener#beforeProxyToTarget}, so its context covers both the
+     * proxy callback and HTTP-client submission. See {@link ConnectorInstrumentationListener}
+     * for cleanup and threading requirements.</p>
+     * <p>A null key always adds an independent registration, even for the same listener instance.
+     * For a non-null key, the first registration wins without moving it. Keys survive repeated
+     * builds and are independent of other builders. Built connectors retain a registration snapshot.
+     * {@link #withProxyEventListener(ProxyEventListener)} does not change instrumentation or its keys.</p>
+     *
+     * @param key A stable registration key, or null for an unkeyed registration
+     * @param listener The non-null listener to append if the key is null or not registered
+     * @return This builder
+     */
+    public CrankerConnectorBuilder addInstrumentationListener(String key, ConnectorInstrumentationListener listener) {
+        Objects.requireNonNull(listener, "listener");
+        if (key == null || instrumentationListenerKeys.add(key)) {
+            instrumentationListeners.add(listener);
+        }
+        return this;
+    }
+
+    /**
      * Sets a listener for events related to cranker registrations
      *
      * @param listener The listener to be called
@@ -290,7 +323,8 @@ public class CrankerConnectorBuilder {
         HttpClient clientToUse = client != null ? client : createHttpClient(false).build();
         ProxyEventListener proxyEventListenerToUse = proxyEventListener != null ? proxyEventListener : new ProxyEventListener(){};
         RegistrationEventListener registrationEventListenerToUse = registrationEventListener != null ? registrationEventListener : new RegistrationEventListener(){};
-        var factory = new RouterRegistrationImpl.Factory(preferredProtocols, clientToUse, domain, route, slidingWindowSize, target, routerEventListener, proxyEventListenerToUse, registrationEventListenerToUse);
+        var factory = new RouterRegistrationImpl.Factory(preferredProtocols, clientToUse, domain, route, slidingWindowSize, target, routerEventListener, proxyEventListenerToUse, registrationEventListenerToUse,
+            new ConnectorInstrumentation(instrumentationListeners));
         return new CrankerConnectorImpl(connectorId, factory, crankerUris, componentName, routerEventListener,
             this.routerUpdateInterval, this.routerUpdateTimeUnit, this.routerDeregisterTimeout, this.routerDeregisterTimeUnit, clientToUse);
     }
