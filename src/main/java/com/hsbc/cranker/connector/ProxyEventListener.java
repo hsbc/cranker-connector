@@ -21,8 +21,8 @@ public interface ProxyEventListener {
     }
 
     /**
-     * Called when error happen during the request proxying
-     * @param request The request that sent (or going to send) to the target server
+     * Called when an error happens during the request proxying
+     * @param request The request that was sent (or is going to be sent) to the target server
      * @param error the error
      */
     default void onProxyError(HttpRequest request, Throwable error) {}
