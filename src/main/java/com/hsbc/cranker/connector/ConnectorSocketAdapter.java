@@ -21,6 +21,7 @@ public class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSock
     private final HttpClient httpClient;
     private final ConnectorSocketListener listener;
     private final ProxyEventListener proxyEventListener;
+    private final ConnectorInstrumentation instrumentation;
     private final ScheduledExecutorService executor;
 
     private WebSocket.Listener underlying;
@@ -29,10 +30,12 @@ public class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSock
     private String protocol = "N/A";
 
     ConnectorSocketAdapter(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener,
-                                  ProxyEventListener proxyEventListener, ScheduledExecutorService executor) {
+                                  ProxyEventListener proxyEventListener, ScheduledExecutorService executor,
+                                  ConnectorInstrumentation instrumentation) {
         this.targetURI = targetURI;
         this.httpClient = httpClient;
         this.proxyEventListener = proxyEventListener;
+        this.instrumentation = instrumentation;
         this.executor = executor;
 
         // bridge the listener, listener observer will only see the adapter consistently.
@@ -81,12 +84,12 @@ public class ConnectorSocketAdapter implements WebSocket.Listener, ConnectorSock
     public void onOpen(WebSocket webSocket) {
         final String subProtocol = webSocket.getSubprotocol();
         if (CRANKER_PROTOCOL_3.equals(subProtocol)) {
-            final ConnectorSocketV3 connectorSocketV3 = new ConnectorSocketV3(targetURI, httpClient, listener, proxyEventListener, executor);
+            final ConnectorSocketV3 connectorSocketV3 = new ConnectorSocketV3(targetURI, httpClient, listener, proxyEventListener, executor, instrumentation);
             protocol = CRANKER_PROTOCOL_3;
             underlying = connectorSocketV3;
             underlying2 = connectorSocketV3;
         } else {
-            final ConnectorSocketImpl connectorSocket = new ConnectorSocketImpl(targetURI, httpClient, listener, proxyEventListener, executor);
+            final ConnectorSocketImpl connectorSocket = new ConnectorSocketImpl(targetURI, httpClient, listener, proxyEventListener, executor, instrumentation);
             protocol = CRANKER_PROTOCOL_1;
             underlying = connectorSocket;
             underlying2 = connectorSocket;

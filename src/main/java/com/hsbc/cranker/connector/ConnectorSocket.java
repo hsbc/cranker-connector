@@ -95,6 +95,7 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
     private final HttpClient httpClient;
     private final ConnectorSocketListener listener;
     private final ProxyEventListener proxyEventListener;
+    private final ConnectorInstrumentation instrumentation;
     private WebSocket webSocket;
     private final ScheduledExecutorService executor;
     private ScheduledFuture<?> pingPongTask;
@@ -104,11 +105,13 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
 
 
     ConnectorSocketImpl(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener,
-                        ProxyEventListener proxyEventListener, ScheduledExecutorService executor) {
+                        ProxyEventListener proxyEventListener, ScheduledExecutorService executor,
+                        ConnectorInstrumentation instrumentation) {
         this.targetURI = targetURI;
         this.httpClient = httpClient;
         this.listener = listener;
         this.proxyEventListener = proxyEventListener;
+        this.instrumentation = instrumentation;
         this.executor = executor;
         onSignOfLife();
     }
@@ -135,19 +138,25 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
             .method(protocolRequest.httpMethod, bodyPublisher);
         putHeadersTo(rb, protocolRequest);
 
-        this.requestToTarget = proxyEventListener.beforeProxyToTarget(rb.build(), rb);
+        HttpRequest preparedRequest = rb.build();
+        Runnable[] cleanup = instrumentation.open(preparedRequest);
+        try {
+            this.requestToTarget = proxyEventListener.beforeProxyToTarget(preparedRequest, rb);
 
-        HttpResponse.BodyHandler<Void> bh = new TargetResponseHandler(protocolResponse, webSocket);
+            HttpResponse.BodyHandler<Void> bh = new TargetResponseHandler(protocolResponse, webSocket);
 
-        this.responseFuture = httpClient.sendAsync(requestToTarget, bh);
-        this.responseFuture.whenComplete((response, throwable) -> {
-            if (throwable != null) {
-                proxyEventListener.onProxyError(this.requestToTarget, throwable);
-                close(State.ERROR, 1011, throwable);
-                // consume request body data on the fly, so that CLOSE frame can arrive and websocket can close gracefully
-                webSocket.request(1);
-            }
-        });
+            this.responseFuture = httpClient.sendAsync(requestToTarget, bh);
+            this.responseFuture.whenComplete((response, throwable) -> {
+                if (throwable != null) {
+                    proxyEventListener.onProxyError(this.requestToTarget, throwable);
+                    close(State.ERROR, 1011, throwable);
+                    // consume request body data on the fly, so that CLOSE frame can arrive and websocket can close gracefully
+                    webSocket.request(1);
+                }
+            });
+        } finally {
+            ConnectorInstrumentation.close(cleanup);
+        }
     }
 
     private void putHeadersTo(HttpRequest.Builder requestToTarget, CrankerRequestParser crankerRequestParser) {

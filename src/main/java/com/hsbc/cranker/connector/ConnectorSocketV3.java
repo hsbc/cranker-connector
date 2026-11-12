@@ -33,6 +33,7 @@ public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
     private final HttpClient httpClient;
     private final ConnectorSocketListener listener;
     private final ProxyEventListener proxyEventListener;
+    private final ConnectorInstrumentation instrumentation;
     private WebSocket webSocket;
     private volatile State websocketState;
     private final ScheduledExecutorService executor;
@@ -44,11 +45,13 @@ public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
     private final AtomicBoolean isSending = new AtomicBoolean(false);
 
     ConnectorSocketV3(URI targetURI, HttpClient httpClient, ConnectorSocketListener listener,
-                      ProxyEventListener proxyEventListener, ScheduledExecutorService executor) {
+                      ProxyEventListener proxyEventListener, ScheduledExecutorService executor,
+                      ConnectorInstrumentation instrumentation) {
         this.targetURI = targetURI;
         this.httpClient = httpClient;
         this.listener = listener;
         this.proxyEventListener = proxyEventListener;
+        this.instrumentation = instrumentation;
         this.executor = executor;
         this.unCompletedBuffers = new ArrayList<>();
         onSignOfLife();
@@ -75,19 +78,25 @@ public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
 
         putHeadersTo(rb, protocolRequest);
 
-        final HttpRequest requestToTarget = proxyEventListener.beforeProxyToTarget(rb.build(), rb);
-        context.request = requestToTarget;
-        HttpResponse.BodyHandler<Void> bh = new TargetResponseHandlerV3(context,
-            CrankerResponseBuilder.newBuilder(),
-            webSocket);
+        HttpRequest preparedRequest = rb.build();
+        Runnable[] cleanup = instrumentation.open(preparedRequest);
+        try {
+            final HttpRequest requestToTarget = proxyEventListener.beforeProxyToTarget(preparedRequest, rb);
+            context.request = requestToTarget;
+            HttpResponse.BodyHandler<Void> bh = new TargetResponseHandlerV3(context,
+                CrankerResponseBuilder.newBuilder(),
+                webSocket);
 
-        final CompletableFuture<HttpResponse<Void>> responseFuture = httpClient.sendAsync(requestToTarget, bh);
-        context.responseFuture = responseFuture;
-        responseFuture.whenComplete((response, throwable) -> {
-            if (throwable != null) {
-                resetStream(context.requestId, 1011, "target request failed: " + throwable.getMessage());
-            }
-        });
+            final CompletableFuture<HttpResponse<Void>> responseFuture = httpClient.sendAsync(requestToTarget, bh);
+            context.responseFuture = responseFuture;
+            responseFuture.whenComplete((response, throwable) -> {
+                if (throwable != null) {
+                    resetStream(context.requestId, 1011, "target request failed: " + throwable.getMessage());
+                }
+            });
+        } finally {
+            ConnectorInstrumentation.close(cleanup);
+        }
     }
 
     /**
