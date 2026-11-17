@@ -296,7 +296,8 @@ class CrankerConnectorDispatchTest {
     })
     void originalProxyContractSendsExactlyItsReturnedRequest(String protocol, boolean instrumented, String mode)
         throws Exception {
-        HttpClient client = startRegistrationFixture(protocol);
+        // Avoid implicit Host forwarding, which would require HTTP/1.1 normalization and replace the returned request.
+        HttpClient client = startRegistrationFixture(protocol, false);
         AtomicReference<HttpRequest> returned = new AtomicReference<>();
         AtomicReference<HttpRequest> sent = new AtomicReference<>();
         HttpClient dispatchClient = new DelegatingHttpClient(client) {
@@ -339,13 +340,18 @@ class CrankerConnectorDispatchTest {
     }
 
     private HttpClient startRegistrationFixture(String protocol) {
+        return startRegistrationFixture(protocol, true);
+    }
+
+    private HttpClient startRegistrationFixture(String protocol, boolean proxyHostHeader) {
         targetServer = httpServer().withInterface("127.0.0.1")
             .addHandler((request, response) -> {
                 request.headers().getAll("x-proxy").forEach(value -> response.headers().add("x-proxy", value));
                 response.write(request.readBodyAsString());
                 return true;
             }).start();
-        router = crankerRouter().withSupportedCrankerProtocols(List.of(protocol)).start();
+        router = crankerRouter().withSupportedCrankerProtocols(List.of(protocol))
+            .proxyHostHeader(proxyHostHeader).start();
         routerServer = httpServer().withInterface("127.0.0.1")
             .addHandler(router.createRegistrationHandler()).addHandler(router.createHttpHandler()).start();
         return HttpClient.newBuilder().executor(clientExecutor)

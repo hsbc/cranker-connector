@@ -10,6 +10,8 @@ public interface ProxyEventListener {
      * Called when the request headers are received, before the request is sent to the target server.
      * <p>This callback can be used to inspect or change the request before it is sent to the target
      * server.</p>
+     * <p>Note: If the returned request contains an explicit {@code Host} header, the connector preserves it
+     * and forces HTTP/1.1, overriding any HTTP/2 preference.</p>
      * @param request The request that was prepared to be sent to the target server
      * @param requestBuilder The builder that created the request, which may be used to generate a new
      *                       request if the original request needs to be modified
