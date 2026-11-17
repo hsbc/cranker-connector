@@ -256,6 +256,9 @@ public class CrankerConnectorBuilder {
     /**
      * Optionally sets an HTTP client used. If not set, then a default one will be used.
      * <p>An HTTP builder suitable for using can be created with {@link #createHttpClient(boolean)}</p>
+     * <p>Target requests containing an explicit {@code Host} header use HTTP/1.1, even if this client
+     * prefers HTTP/2. Requests without Host retain the request's version preference, or this client's
+     * preference if none is set.</p>
      *
      * @param client The client to use to connect to the target server
      * @return This builder

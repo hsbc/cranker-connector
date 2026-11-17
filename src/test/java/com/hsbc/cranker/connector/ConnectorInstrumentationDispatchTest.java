@@ -17,16 +17,22 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 class ConnectorInstrumentationDispatchTest {
     @ParameterizedTest
     @CsvSource({
-        "cranker_1.0, proxy", "cranker_3.0, proxy",
-        "cranker_1.0, send", "cranker_3.0, send",
-        "cranker_1.0, completed-success", "cranker_3.0, completed-success",
-        "cranker_1.0, completed-failure", "cranker_3.0, completed-failure"
+        "cranker_1.0, proxy, false", "cranker_3.0, proxy, false",
+        "cranker_1.0, send, false", "cranker_3.0, send, false",
+        "cranker_1.0, completed-success, false", "cranker_3.0, completed-success, false",
+        "cranker_1.0, completed-failure, false", "cranker_3.0, completed-failure, false",
+        "cranker_1.0, proxy, true", "cranker_3.0, proxy, true",
+        "cranker_1.0, send, true", "cranker_3.0, send, true",
+        "cranker_1.0, completed-success, true", "cranker_3.0, completed-success, true",
+        "cranker_1.0, completed-failure, true", "cranker_3.0, completed-failure, true"
     })
-    void scopesRestorePreviousContextOnSynchronousExit(String protocol, String outcome) throws Exception {
+    void scopesRestorePreviousContextOnSynchronousExit(String protocol, String outcome, boolean addHost) throws Exception {
+        assumeFalse(HttpUtils.DISALLOWED_REQUEST_HEADERS.contains("host") && addHost, "This JDK cannot set Host");
         // Invoke the socket callback directly: assert context lifetime, not HTTP error or tunnel recovery policy.
         ThreadLocal<String> current = new ThreadLocal<>();
         current.set("previous");
@@ -42,7 +48,14 @@ class ConnectorInstrumentationDispatchTest {
                 @Override
                 public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request, HttpResponse.BodyHandler<T> handler) {
                     assertEquals("inner", current.get());
-                    assertSame(returned[0], request);
+                    if (addHost) {
+                        assertEquals(HttpClient.Version.HTTP_1_1, request.version().orElseThrow());
+                        assertEquals(HttpClient.Version.HTTP_2, returned[0].version().orElseThrow());
+                        assertEquals("listener.example", request.headers().firstValue("host").orElseThrow());
+                        assertEquals(returned[0].headers(), request.headers());
+                    } else {
+                        assertSame(returned[0], request);
+                    }
                     events.add("send");
                     if ("send".equals(outcome)) throw failure;
                     // Only model submission/completion-handler installation, not the response body lifecycle.
@@ -56,8 +69,10 @@ class ConnectorInstrumentationDispatchTest {
                     assertEquals("inner", current.get());
                     events.add("proxy");
                     if ("proxy".equals(outcome)) throw failure;
-                    returned[0] = request;
-                    return request;
+                    returned[0] = addHost
+                        ? builder.header("Host", "listener.example").version(HttpClient.Version.HTTP_2).build()
+                        : request;
+                    return returned[0];
                 }
             };
             ConnectorInstrumentation instrumentation = new ConnectorInstrumentation(List.of(

@@ -81,7 +81,7 @@ public class ConnectorSocketV3 implements WebSocket.Listener, ConnectorSocket {
         HttpRequest preparedRequest = rb.build();
         Runnable[] cleanup = instrumentation.open(preparedRequest);
         try {
-            final HttpRequest requestToTarget = proxyEventListener.beforeProxyToTarget(preparedRequest, rb);
+            final HttpRequest requestToTarget = HttpUtils.prepareRequestForTarget(proxyEventListener.beforeProxyToTarget(preparedRequest, rb));
             context.request = requestToTarget;
             HttpResponse.BodyHandler<Void> bh = new TargetResponseHandlerV3(context,
                 CrankerResponseBuilder.newBuilder(),

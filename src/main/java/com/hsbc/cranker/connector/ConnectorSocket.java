@@ -141,7 +141,7 @@ class ConnectorSocketImpl implements WebSocket.Listener, ConnectorSocket {
         HttpRequest preparedRequest = rb.build();
         Runnable[] cleanup = instrumentation.open(preparedRequest);
         try {
-            this.requestToTarget = proxyEventListener.beforeProxyToTarget(preparedRequest, rb);
+            this.requestToTarget = HttpUtils.prepareRequestForTarget(proxyEventListener.beforeProxyToTarget(preparedRequest, rb));
 
             HttpResponse.BodyHandler<Void> bh = new TargetResponseHandler(protocolResponse, webSocket);
 
