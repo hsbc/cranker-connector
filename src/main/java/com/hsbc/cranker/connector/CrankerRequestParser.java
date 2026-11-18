@@ -29,7 +29,7 @@ class CrankerRequestParser {
      * ** \n
      * ** endmarker
      * =====msg with body part 2=========
-     * ** [BINRAY BODY]
+     * ** [BINARY BODY]
      * =====msg with body part 3=======
      * ** endmarker
      */
